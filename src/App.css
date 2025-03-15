@@ -1,0 +1,252 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* Tab Navigation */
+.form-tabs {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 30px;
+}
+
+.form-tabs button {
+  background-color: #333;
+  border: 1px solid #444;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.form-tabs button.active {
+  background-color: #535bf2;
+  border-color: #535bf2;
+}
+
+.form-tabs button:hover:not(.active) {
+  background-color: #444;
+}
+
+/* Form styling */
+.login-form, .advanced-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 100%;
+  max-width: 350px;
+  margin: 0 auto 20px;
+  padding: 20px;
+  background-color: #2a2a2a;
+  border-radius: 8px;
+}
+
+.advanced-form {
+  max-width: 600px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+}
+
+.form-group.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group input[type="date"],
+.form-group input[type="time"],
+.form-group select,
+.form-group textarea {
+  padding: 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background-color: #1a1a1a;
+  color: #fff;
+}
+
+.form-group input[type="file"] {
+  padding: 10px 0;
+}
+
+.form-group input[type="range"] {
+  /* width: 100%; */
+}
+
+.form-group select[multiple] {
+  height: auto;
+}
+
+.form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.form-group .error {
+  color: #ff6b6b;
+  font-size: 0.8em;
+}
+
+/* Form sections */
+.form-section {
+  border-bottom: 1px solid #444;
+  padding-bottom: 15px;
+  margin-bottom: 15px;
+}
+
+.form-section h3 {
+  margin-bottom: 10px;
+  font-size: 1.2em;
+  color: #c3c3c3;
+}
+
+.form-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+/* Radio and checkbox groups */
+.radio-options, .checkbox-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.radio-options label, .checkbox-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* Color picker */
+.form-group.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.form-group.color-picker input[type="color"] {
+  width: 50px;
+  height: 30px;
+  padding: 2px;
+}
+
+.color-value {
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+/* File input */
+.file-names {
+  font-size: 0.9em;
+  margin-top: 5px;
+  color: #aaa;
+}
+
+.form-data,
+.current-values {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.form-data pre,
+.current-values pre {
+  background-color: #2a2a2a;
+  padding: 15px;
+  border-radius: 8px;
+  overflow: auto;
+  color: #ddd;
+}
+
+.form-container {
+  margin-bottom: 40px;
+}
+
+.form-divider {
+  margin: 40px 0;
+  border: none;
+  border-top: 1px solid #444;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.form-actions button {
+  min-width: 100px;
+}
+
+.uncontrolled-form-demo h2,
+.advanced-form-demo h2,
+.form-container h2 {
+  margin-bottom: 10px;
+}
+
+.uncontrolled-form-demo p,
+.advanced-form-demo p {
+  margin-bottom: 20px;
+  color: #888;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .form-tabs {
+    flex-direction: column;
+    gap: 5px;
+  }
+  
+  .advanced-form {
+    padding: 15px;
+  }
+}
