@@ -20,13 +20,16 @@ Most form libraries on the market are either too simple (leaving you to handle c
 
 ```bash
 # npm
-npm install @simple-react/form
+npx jsr add @simple-react/form
 
 # yarn
-yarn add @simple-react/form
+yarn dlx jsr add @simple-react/form
 
 # pnpm
-pnpm add @simple-react/form
+pnpm dlx jsr add @simple-react/form
+
+# bun
+bunx jsr add @simple-react/form
 ```
 
 ## 🚀 Quick Start
