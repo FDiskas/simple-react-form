@@ -1,20 +1,6 @@
 {
   "name": "@simple-react/form",
-  "private": true,
   "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "start": "vite --host --port 3000",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@logtape/logtape": "npm:@jsr/logtape__logtape",
-    "@simple-react/form": "^0.1.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "@types/react": "^19.0.10",
@@ -27,5 +13,17 @@
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.24.1",
     "vite": "^6.2.0"
-  }
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "private": true,
+  "scripts": {
+    "start": "vite --host --port 3000",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "type": "module"
 }
