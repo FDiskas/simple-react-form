@@ -2,13 +2,14 @@
     "name": "@simple-react/form",
     "version": "0.1.2",
     "license": "MIT",
-    "exports": "./src/lib/useForm.ts",
+    "exports": "./src/index.ts",
     "publish": {
         "include": [
             "LICENSE",
             "README.md",
             "./docs/DOCUMENTATION.md",
-            "./src/lib/useForm.ts"
+            "./src/lib/useForm.ts",
+            "./src/index.ts"
         ]
     }
 }

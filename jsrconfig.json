@@ -1,6 +1,6 @@
 {
   "name": "@simple-react/form",
-  "version": "0.0.0",
+  "version": "0.1.2",
   "exports": "./src/index.ts",
   "imports": {
     "react": "npm:react@^19.0.0",
