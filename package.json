@@ -10,7 +10,8 @@
     "globals": "^15.15.0",
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.24.1",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "jsr": "^0.13.4"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -23,7 +24,15 @@
     "start": "vite --host --port 3000",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "jsr:build": "jsr build",
+    "jsr:publish": "jsr publish"
   },
-  "type": "module"
+  "type": "module",
+  "jsr": {
+    "imports": {
+      "react": "npm:react@^19.0.0",
+      "react-dom": "npm:react-dom@^19.0.0"
+    }
+  }
 }
