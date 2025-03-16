@@ -32,7 +32,7 @@ export function UncontrolledForm() {
   const [submittedData, setSubmittedData] = useState<ProfileForm | null>(null);
   
   // Explicitly set controlled to false and use validateOn option
-  const { values, errors, touched, handleSubmit, register, reset } = useForm<ProfileForm>({
+  const { values, errors, handleSubmit, register, reset } = useForm<ProfileForm>({
     defaultValues: {
       firstName: '',
       lastName: '',
@@ -40,11 +40,7 @@ export function UncontrolledForm() {
       newsletter: false,
       hiddenToken: 'secret-token-12345' // This value should persist
     },
-    validator: values => {
-             const errors: Partial<ProfileForm> = {}
-             if (!values.lastName) errors.bio = '';
-             return errors;
-           },
+    validator: profileValidator,
     controlled: false, // Explicitly set to false for clarity
   });
 

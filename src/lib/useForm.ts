@@ -1,9 +1,19 @@
-import { useRef, useState, useCallback, FormEvent } from 'react';
+import { useRef, useState, useCallback, FormEvent, ChangeEvent } from 'react';
 
 /**
  * Generic type for form values
  */
-export type FormValues = Record<string, any>;
+export type FormValues = Record<string, unknown>;
+
+/**
+ * Type for form input elements
+ */
+export type FormInputElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+/**
+ * Type for form input change events
+ */
+export type FormInputEvent = ChangeEvent<FormInputElement> | unknown;
 
 /**
  * Options for configuring the useForm hook behavior
@@ -15,6 +25,8 @@ export interface UseFormOptions<T extends FormValues> {
   validator?: (values: T) => Partial<Record<keyof T, string>> | Promise<Partial<Record<keyof T, string>>>;
   /** Whether to use React state (true) or refs (false) for form values */
   controlled?: boolean;
+  /** Whether to enable debug logging of form state changes */
+  debug?: boolean;
 }
 
 /**
@@ -33,7 +45,7 @@ export interface UseFormReturn<T extends FormValues> {
   register: <K extends keyof T>(name: K) => {
     name: K;
     defaultValue?: string;
-    onChange: (e: any) => void;
+    onChange: (e: FormInputEvent) => void;
     onBlur: () => void;
     value?: string;
     checked?: boolean;
@@ -60,7 +72,7 @@ export function useForm<T extends FormValues = FormValues>(
 ): UseFormReturn<T extends FormValues ? T : (typeof options.defaultValues extends FormValues ? typeof options.defaultValues : FormValues)> {
   type InferredT = T extends FormValues ? T : (typeof options.defaultValues extends FormValues ? typeof options.defaultValues : FormValues);
 
-  const { defaultValues = {} as Partial<InferredT>, validator, controlled = false } = options;
+  const { defaultValues = {} as Partial<InferredT>, validator, controlled = false, debug = false } = options;
   
   // Create refs and state for form state management
   const formRef = useRef<Partial<InferredT>>({} as Partial<InferredT>);
@@ -86,7 +98,7 @@ export function useForm<T extends FormValues = FormValues>(
     const currentFormValues = controlled ? values : formRef.current;
     
     // Start with a fresh object
-    const result = {} as Record<keyof InferredT, any>;
+    const result = {} as Record<keyof InferredT, unknown>;
     
     // Apply all default values first
     for (const key in defaultValuesRef.current) {
@@ -119,6 +131,8 @@ export function useForm<T extends FormValues = FormValues>(
 
   
   const debugFormValues = useCallback((label: string) => {
+    if (!debug) return; // Only log if debug is enabled
+    
     console.group(`Form Debug: ${label}`);
     console.log('Current Values:', getCurrentValues());
     console.log('Modified Fields:', Array.from(modifiedFieldsRef.current));
@@ -126,7 +140,7 @@ export function useForm<T extends FormValues = FormValues>(
     console.log('Raw Form Values:', controlled ? values : formRef.current);
     console.log('Default Values:', defaultValuesRef.current);
     console.groupEnd();
-  }, [getCurrentValues, controlled, values]);
+  }, [getCurrentValues, controlled, values, debug]);
 
   
   /**
@@ -163,10 +177,10 @@ export function useForm<T extends FormValues = FormValues>(
   /**
    * Processes the input change event and extracts the appropriate value
    */
-  const handleInputChange = useCallback((name: keyof InferredT, e: any) => {
+  const handleInputChange = useCallback((name: keyof InferredT, e: FormInputEvent) => {
     // Direct value from custom component
-    if (!e.target) {
-      updateFormValue(name, e);
+    if (e === null || e === undefined || !(e as ChangeEvent<FormInputElement>).target) {
+      updateFormValue(name, e as InferredT[typeof name]);
       return;
     }
 
@@ -174,22 +188,22 @@ export function useForm<T extends FormValues = FormValues>(
     // This ensures we track all modifications through React's event system
     modifiedFieldsRef.current.add(name);
 
-    const target = e.target;
+    const target = (e as ChangeEvent<FormInputElement>).target;
     const inputType = target.type;
     const currentFieldValue = getCurrentValues()[name];
-    let newValue;
+    let newValue: unknown;
     
     // Handle checkbox
     if (inputType === 'checkbox') {
       if (Array.isArray(currentFieldValue)) {
         // Handle checkbox groups (array of values)
-        const { value, checked } = target;
+        const { value, checked } = target as HTMLInputElement;
         newValue = checked 
           ? [...currentFieldValue, value]
-          : currentFieldValue.filter((v: any) => v !== value);
+          : currentFieldValue.filter((v: unknown) => v !== value);
       } else {
         // Regular boolean checkbox
-        newValue = target.checked;
+        newValue = (target as HTMLInputElement).checked;
       }
     }
     // Handle radio button
@@ -197,26 +211,26 @@ export function useForm<T extends FormValues = FormValues>(
       newValue = target.value;
     }
     // Handle multi-select
-    else if (inputType === 'select-multiple') {
-      newValue = Array.from(target.options as HTMLCollectionOf<HTMLOptionElement>)
-        .filter(option => option.selected)
-        .map(option => option.value);
+    else if (inputType === 'select-multiple' && target instanceof HTMLSelectElement) {
+        newValue = Array.from(target.options)
+          .filter(option => option.selected)
+          .map(option => option.value);
     }
     // Handle default inputs (text, select, etc.)
     else {
       newValue = target.value;
     }
     
-    updateFormValue(name, newValue);
+    updateFormValue(name, newValue as InferredT[keyof InferredT]);
   }, [getCurrentValues, updateFormValue]);
 
   /**
    * Handles setup of input elements based on their type
    */
   const setupInputElement = useCallback(<K extends keyof InferredT>(
-    element: HTMLElement, 
+    element: FormInputElement | null, 
     name: K, 
-    currentValue: any
+    currentValue: unknown
   ) => {
     if (!element) return;
 
@@ -269,7 +283,7 @@ export function useForm<T extends FormValues = FormValues>(
     
     const props = {
       name,
-      onChange: (e: any) => handleInputChange(name, e),
+      onChange: (e: FormInputEvent) => handleInputChange(name, e),
       onBlur: () => {
         setTouched(prev => ({ ...prev, [name]: true }));
         // Mark as modified on blur as well to catch any direct input 
@@ -277,7 +291,7 @@ export function useForm<T extends FormValues = FormValues>(
         modifiedFieldsRef.current.add(name);
         validate();
       },
-      ref: (element: any) => setupInputElement(element, name, currentValue)
+      ref: (element: FormInputElement | null) => setupInputElement(element, name, currentValue)
     };
 
     return props;

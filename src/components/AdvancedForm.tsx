@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useForm } from '../lib/useForm';
+import { FormValues, useForm } from '../lib/useForm';
 
 // Define a complex form with many different field types
-interface AdvancedFormData {
+interface AdvancedFormData extends FormValues {
   // Basic inputs
   fullName: string;
   email: string;
@@ -89,7 +89,7 @@ const validateAdvancedForm = (values: AdvancedFormData) => {
 export function AdvancedForm() {
   const [formData, setFormData] = useState<AdvancedFormData | null>(null);
   
-  const { values, errors, handleSubmit, register, setValue, reset, touched } = useForm({
+  const { values, errors, handleSubmit, register, reset } = useForm<AdvancedFormData>({
     defaultValues: {
         "fullName": "hfghfghfgh",
         "email": "projektas@gmail.com",

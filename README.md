@@ -1,6 +1,7 @@
 # SimpleForm
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://jsr.io/badges/@simple-react/form)
+![Size](https://deno.bundlejs.com/badge?scope=unpkg&name=@simple-react/form)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 > A lightweight, flexible form management library for React applications
@@ -344,7 +345,7 @@ const form = useForm({
 
 | Feature | SimpleForm | Formik | React Hook Form |
 |---------|------------|--------|-----------------|
-| Bundle Size | ~5kb | ~15kb | ~9kb |
+| Bundle Size | ~5kb | ~13kb | ~10kb |
 | Validation | Built-in | Yup/manual | Built-in/resolver |
 | Typescript | Full support | Partial | Full support |
 | Empty field handling | Yes | No | Partial |

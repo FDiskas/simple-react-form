@@ -19,6 +19,14 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4"
   },
+  "peerDependenciesMeta": {
+    "@types/react": {
+      "optional": true
+    },
+    "@types/react-dom": {
+      "optional": true
+    }
+  },
   "private": true,
   "scripts": {
     "start": "vite --host --port 3000",
