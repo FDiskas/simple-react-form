@@ -91,7 +91,7 @@ export function useForm<TValues>({
   validator?: (values: TValues) => Partial<Record<keyof TValues, string>>;
   controlled?: boolean;
   debug?: boolean;
-}) {
+}): UseFormReturn<TValues> {
   type InferredT = TValues;
 
   const { defaultValues: initialDefaultValues = {} as Partial<InferredT> } = { defaultValues };
