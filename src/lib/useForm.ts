@@ -1,9 +1,23 @@
 import { useRef, useState, useCallback, FormEvent, ChangeEvent } from 'react';
 
 /**
+ * Union type of all possible form field value types
+ */
+export type FormFieldValue = 
+  | string 
+  | number 
+  | boolean 
+  | string[] 
+  | number[] 
+  | File 
+  | FileList 
+  | null 
+  | undefined;
+
+/**
  * Generic type for form values
  */
-export type FormValues = Record<string, unknown>;
+export type FormValues = Record<string, FormFieldValue>;
 
 /**
  * Type for form input elements
@@ -13,12 +27,12 @@ export type FormInputElement = HTMLInputElement | HTMLSelectElement | HTMLTextAr
 /**
  * Type for form input change events
  */
-export type FormInputEvent = ChangeEvent<FormInputElement> | unknown;
+export type FormInputEvent = ChangeEvent<FormInputElement> | FormFieldValue;
 
 /**
  * Options for configuring the useForm hook behavior
  */
-export interface UseFormOptions<T extends FormValues> {
+export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
   /** Initial values for form fields */
   defaultValues?: Partial<T>;
   /** Function to validate form values, returns error messages by field name */
@@ -32,7 +46,7 @@ export interface UseFormOptions<T extends FormValues> {
 /**
  * Return type for the useForm hook
  */
-export interface UseFormReturn<T extends FormValues> {
+export interface UseFormReturn<T> {
   /** Current form values */
   values: T;
   /** Validation error messages by field name */
@@ -67,16 +81,24 @@ export interface UseFormReturn<T extends FormValues> {
  * @param options - Configuration options for the form
  * @returns Form state and helper methods for managing the form
  */
-export function useForm<T extends FormValues = FormValues>(
-  options: UseFormOptions<T> = {}
-): UseFormReturn<T extends FormValues ? T : (typeof options.defaultValues extends FormValues ? typeof options.defaultValues : FormValues)> {
-  type InferredT = T extends FormValues ? T : (typeof options.defaultValues extends FormValues ? typeof options.defaultValues : FormValues);
+export function useForm<TValues>({
+  defaultValues,
+  validator,
+  controlled = false,
+  debug = false
+}: {
+  defaultValues?: Partial<TValues>;
+  validator?: (values: TValues) => Partial<Record<keyof TValues, string>>;
+  controlled?: boolean;
+  debug?: boolean;
+}) {
+  type InferredT = TValues;
 
-  const { defaultValues = {} as Partial<InferredT>, validator, controlled = false, debug = false } = options;
+  const { defaultValues: initialDefaultValues = {} as Partial<InferredT> } = { defaultValues };
   
   // Create refs and state for form state management
   const formRef = useRef<Partial<InferredT>>({} as Partial<InferredT>);
-  const defaultValuesRef = useRef(defaultValues);
+  const defaultValuesRef = useRef(initialDefaultValues);
   
   // Track which fields have been touched by the user
   const registeredFieldsRef = useRef<Set<keyof InferredT>>(new Set());
@@ -150,7 +172,7 @@ export function useForm<T extends FormValues = FormValues>(
     if (!validator) return true;
     
     const currentValues = getCurrentValues();
-    const validationErrors = await validator(currentValues as T);
+    const validationErrors = await validator(currentValues as TValues);
     const hasErrors = Object.keys(validationErrors).length > 0;
     
     setErrors(validationErrors as Partial<Record<keyof InferredT, string>>);
@@ -195,12 +217,39 @@ export function useForm<T extends FormValues = FormValues>(
     
     // Handle checkbox
     if (inputType === 'checkbox') {
-      if (Array.isArray(currentFieldValue)) {
+      // Check if this is a checkbox group (has a default array value)
+      const defaultValue = defaultValuesRef.current[name as keyof typeof defaultValuesRef.current];
+      const isCheckboxGroup = Array.isArray(defaultValue) || Array.isArray(currentFieldValue);
+      
+      if (isCheckboxGroup) {
         // Handle checkbox groups (array of values)
         const { value, checked } = target as HTMLInputElement;
-        newValue = checked 
-          ? [...currentFieldValue, value]
-          : currentFieldValue.filter((v: unknown) => v !== value);
+        
+        // Important: We need to get the FULL array of currently checked values
+        // This ensures we don't lose existing selections when a new checkbox is clicked
+        let currentArray: unknown[] = [];
+        
+        // If it exists in current form values, use that
+        if (Array.isArray(currentFieldValue)) {
+          currentArray = [...currentFieldValue];
+        }
+        // Otherwise, fall back to default values if available
+        else if (Array.isArray(defaultValue)) {
+          currentArray = [...defaultValue];
+        }
+        
+        // Now update our array with the new selection
+        if (checked) {
+          // Add value if not already in array
+          if (!currentArray.includes(value)) {
+            currentArray.push(value);
+          }
+        } else {
+          // Remove value from array
+          currentArray = currentArray.filter(v => v !== value);
+        }
+        
+        newValue = currentArray;
       } else {
         // Regular boolean checkbox
         newValue = (target as HTMLInputElement).checked;
@@ -325,13 +374,16 @@ export function useForm<T extends FormValues = FormValues>(
       const input = element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
       const name = input.name;
       
-      if (!name || !(name in defaultValues)) return;
+      // Fix for "defaultValues is possibly undefined"
+      if (!name || !defaultValues || !(name in defaultValues)) return;
       const defaultValue = defaultValues[name as keyof typeof defaultValues];
       
       if (input instanceof HTMLInputElement) {
         if (input.type === 'checkbox' || input.type === 'radio') {
           if (Array.isArray(defaultValue)) {
-            input.checked = defaultValue.includes(input.value);
+            // Fix for "Argument of type 'string' is not assignable to parameter of type 'never'"
+            const valueArray = defaultValue as unknown[];
+            input.checked = valueArray.includes(input.value);
           } else if (typeof defaultValue === 'boolean') {
             input.checked = defaultValue;
           } else if (input.type === 'radio') {
@@ -342,8 +394,10 @@ export function useForm<T extends FormValues = FormValues>(
         }
       } else if (input instanceof HTMLSelectElement) {
         if (input.multiple && Array.isArray(defaultValue)) {
+          // Fix for array type checking
+          const valueArray = defaultValue as unknown[];
           Array.from(input.options).forEach(option => {
-            option.selected = defaultValue.includes(option.value);
+            option.selected = valueArray.includes(option.value);
           });
         } else {
           input.value = defaultValue?.toString() || '';
@@ -358,7 +412,6 @@ export function useForm<T extends FormValues = FormValues>(
     setTouched({});
     setIsDirty(false);
   }, [controlled, defaultValues]);
-
 
   /**
    * Creates a submit handler that validates and processes form data

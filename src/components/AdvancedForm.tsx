@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { FormValues, useForm } from '../lib/useForm';
+import { useForm } from '../lib/useForm';
 
-// Define a complex form with many different field types
-interface AdvancedFormData extends FormValues {
+// Define a complex form without extending FormValues
+interface AdvancedFormData {
   // Basic inputs
   fullName: string;
   email: string;
@@ -109,10 +109,11 @@ export function AdvancedForm() {
         "meetingTime": "",
         "favoriteColor": "#6366f1",
         "profilePicture": null,
-      sessionId: 'adv-form-' + Date.now()
+      "sessionId": 'adv-form-' + Date.now()
     },
     validator: validateAdvancedForm,
     controlled: true,
+    debug: true
   });
   
   const onSubmit = (data: AdvancedFormData) => {
@@ -405,4 +406,3 @@ export function AdvancedForm() {
     </div>
   );
 }
- 

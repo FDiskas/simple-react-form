@@ -39,6 +39,7 @@ bunx jsr add @simple-react/form
 import { useForm } from '@simple-react/form';
 
 function SignupForm() {
+  // Define your form directly with any interface or type - no base types needed
   const { values, errors, register, handleSubmit } = useForm({
     defaultValues: {
       email: '',
@@ -87,22 +88,38 @@ function SignupForm() {
 
 ## ✨ Features
 
-- **🎯 Type-safe** - Full TypeScript support with inferred types
+- **🎯 Type-safe** - Full TypeScript support with inferred types and custom interfaces
 - **🔄 Controlled & Uncontrolled inputs** - Works with both approaches
 - **🧪 Flexible validation** - Sync or async validation
 - **🧩 Form state tracking** - Track values, errors, touched fields, and form status
 - **⚡ Performance optimized** - No unnecessary re-renders
 - **🔍 Field tracking** - Tracks which fields are modified to handle empty field submissions correctly
 - **🧵 Simple API** - Intuitive methods like `register`, `handleSubmit`, and `setValue`
+- **🛠️ Debug mode** - Optional debug logging for troubleshooting
 
 ## 📖 API Documentation
 
 ### `useForm<T>` Hook
 
 ```typescript
-function useForm<T extends FormValues = FormValues>(
-  options?: UseFormOptions<T>
-): UseFormReturn<T>
+function useForm<T>(
+  options?: {
+    defaultValues?: Partial<T>;
+    validator?: (values: T) => Partial<Record<keyof T, string>> | Promise<Partial<Record<keyof T, string>>>;
+    controlled?: boolean;
+    debug?: boolean;
+  }
+): {
+  values: T;
+  errors: Partial<Record<keyof T, string>>;
+  touched: Partial<Record<keyof T, boolean>>;
+  handleSubmit: (onSubmit: (values: T) => void | Promise<void>) => (e: FormEvent) => Promise<void>;
+  register: <K extends keyof T>(name: K) => { /* props for form field */ };
+  setValue: <K extends keyof T>(name: K, value: T[K]) => void;
+  reset: () => void;
+  isDirty: boolean;
+  isValid: boolean;
+}
 ```
 
 #### Options
@@ -112,6 +129,7 @@ function useForm<T extends FormValues = FormValues>(
 | `defaultValues` | `Partial<T>` | Initial values for form fields |
 | `validator` | `(values: T) => Record<keyof T, string> \| Promise<Record<keyof T, string>>` | Validation function that returns error messages by field name |
 | `controlled` | `boolean` | Whether to use React state (`true`) or refs (`false`) for form values |
+| `debug` | `boolean` | Enable debug logging to console for troubleshooting |
 
 #### Return Value
 
@@ -134,15 +152,22 @@ function useForm<T extends FormValues = FormValues>(
 ```jsx
 import { useForm } from '@simple-react/form';
 
+// Define a custom interface directly - no need to extend anything
+interface ContactFormValues {
+  name: string;
+  email: string;
+  message: string;
+}
+
 function ContactForm() {
-  const { register, handleSubmit, errors } = useForm({
+  const { register, handleSubmit, errors } = useForm<ContactFormValues>({
     defaultValues: {
       name: '',
       email: '',
       message: ''
     },
     validator: (values) => {
-      const errors = {};
+      const errors: Partial<Record<keyof ContactFormValues, string>> = {};
       if (!values.name) errors.name = 'Name is required';
       if (!values.email) errors.email = 'Email is required';
       else if (!/^\S+@\S+\.\S+$/.test(values.email)) {
@@ -297,7 +322,7 @@ import { useForm } from '@simple-react/form';
 import DatePicker from 'react-datepicker';
 
 function AppointmentForm() {
-  const { register, handleSubmit, setValue } = useForm({
+  const { register, handleSubmit, setValue, values } = useForm({
     defaultValues: {
       name: '',
       appointmentDate: new Date()
@@ -347,10 +372,11 @@ const form = useForm({
 |---------|------------|--------|-----------------|
 | Bundle Size | ~5kb | ~13kb | ~10kb |
 | Validation | Built-in | Yup/manual | Built-in/resolver |
-| Typescript | Full support | Partial | Full support |
+| TypeScript | Full support & direct interfaces | Partial | Full support |
 | Empty field handling | Yes | No | Partial |
 | Learning curve | Low | Medium | Medium |
 | Controlled/Uncontrolled | Both | Controlled | Uncontrolled |
+| Debug mode | Yes | Partial | Yes |
 
 ## 🤖 AI-Powered Development
 
