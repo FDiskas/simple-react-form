@@ -48,13 +48,24 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const issue = context.payload.issue ||
-              await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
-              })
-            return issue.data.reactions['+1'] >= process.env.MIN_UPVOTES
+            try {
+              const issue = context.payload.issue ||
+                await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
+                })
+
+              if (!issue || !issue.data || !issue.data.reactions) {
+                core.setFailed('Could not retrieve issue data')
+                return false
+              }
+
+              return issue.data.reactions['+1'] >= process.env.MIN_UPVOTES
+            } catch (error) {
+              core.setFailed(`Error counting upvotes: ${error.message}`)
+              return false
+            }
 
       - name: Analyze issue with Copilot
         id: analyze-issue-with-copilot
