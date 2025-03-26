@@ -1,0 +1,96 @@
+name: AI Issue Handler
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+env:
+  MIN_UPVOTES: 2
+  AI_CONTEXT: |
+    This is a React hook for form management.
+    The main file is lib/useForm.ts.
+    Follow React best practices and maintain type safety.
+
+jobs:
+  handle-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Count upvotes
+        id: count-upvotes
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = context.payload.issue
+            return issue.reactions['+1'] >= process.env.MIN_UPVOTES
+
+      - name: Analyze issue with Copilot
+        if: steps.count-upvotes.outputs.result == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Use GitHub Copilot to analyze and fix issue
+            // This is a placeholder - actual Copilot integration would go here
+
+      - name: Create PR
+        if: steps.count-upvotes.outputs.result == 'true'
+        uses: peter-evans/create-pull-request@v4
+        with:
+          commit-message: 'Fix: AI-generated solution for issue #${{ github.event.issue.number }}'
+          title: 'Fix: ${{ github.event.issue.title }}'
+          body: |
+            AI-generated fix for issue #${{ github.event.issue.number }}
+            ${{ github.event.issue.body }}
+
+  merge-pr:
+    runs-on: ubuntu-latest
+    needs: handle-issue
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Count PR upvotes
+        id: count-pr-upvotes
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const pr = context.payload.pull_request
+            return pr.reactions['+1'] >= process.env.MIN_UPVOTES
+
+      - name: Merge PR
+        if: steps.count-pr-upvotes.outputs.result == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: 'squash'
+            })
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: merge-pr
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Publish to JSR
+        run: |
+          npm install -g @jsr/cli
+          jsr publish
