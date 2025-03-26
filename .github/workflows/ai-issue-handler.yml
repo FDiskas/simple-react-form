@@ -5,13 +5,25 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      min_upvotes:
+        description: 'Minimum upvotes required'
+        required: false
+        default: '2'
+      ai_context:
+        description: 'AI context for Copilot'
+        required: false
+        default: |
+          This is a React hook for form management.
+          The main file is lib/useForm.ts.
+          Follow React best practices and maintain type safety.
 
 env:
-  MIN_UPVOTES: 2
-  AI_CONTEXT: |
-    This is a React hook for form management.
-    The main file is lib/useForm.ts.
-    Follow React best practices and maintain type safety.
+  MIN_UPVOTES: ${{ github.event.inputs.min_upvotes || 2 }}
+  AI_CONTEXT: ${{ github.event.inputs.ai_context || 'Default AI context' }}
 
 jobs:
   handle-issue:
@@ -30,26 +42,66 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const issue = context.payload.issue
-            return issue.reactions['+1'] >= process.env.MIN_UPVOTES
+            const issue = context.payload.issue ||
+              await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
+              })
+            return issue.data.reactions['+1'] >= process.env.MIN_UPVOTES
 
       - name: Analyze issue with Copilot
+        id: analyze-issue-with-copilot
         if: steps.count-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
           script: |
-            // Use GitHub Copilot to analyze and fix issue
-            // This is a placeholder - actual Copilot integration would go here
+            const { Octokit } = require('@octokit/rest')
+            const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
+            const core = require('@actions/core')
+            const exec = require('@actions/exec')
+
+            // Get issue details
+            const issue = context.payload.issue ||
+              await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
+              })
+
+            // Call GitHub Copilot API
+            const response = await octokit.request('POST /copilot/suggestions', {
+              prompt: `Issue: ${issue.data.title}\n${issue.data.body}\n\nContext: ${process.env.AI_CONTEXT}`,
+              max_tokens: 500,
+              temperature: 0.7
+            })
+
+            // Create new branch
+            const branchName = `fix/issue-${issue.data.number}-${Date.now()}`
+            await exec.exec('git', ['checkout', '-b', branchName])
+
+            // Apply suggested changes
+            const suggestions = response.data.choices[0].text
+            // Implementation of applying changes would go here
+
+            // Commit changes
+            await exec.exec('git', ['add', '.'])
+            await exec.exec('git', ['commit', '-m', `Fix: ${issue.data.title} (#${issue.data.number})`])
+            await exec.exec('git', ['push', 'origin', branchName])
+
+            core.setOutput('branch_name', branchName)
 
       - name: Create PR
         if: steps.count-upvotes.outputs.result == 'true'
         uses: peter-evans/create-pull-request@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: 'Fix: AI-generated solution for issue #${{ github.event.issue.number }}'
           title: 'Fix: ${{ github.event.issue.title }}'
           body: |
             AI-generated fix for issue #${{ github.event.issue.number }}
             ${{ github.event.issue.body }}
+          head: ${{ steps.analyze-issue-with-copilot.outputs.branch_name }}
 
   merge-pr:
     runs-on: ubuntu-latest
