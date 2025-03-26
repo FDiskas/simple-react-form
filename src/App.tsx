@@ -44,7 +44,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'controlled' | 'uncontrolled' | 'advanced'>('controlled');
   
   // Example of a controlled form
-  const { values, errors, touched, handleSubmit, register, reset } = useForm<LoginForm>({
+  const { values, errors, handleSubmit, register, reset } = useForm<LoginForm>({
     defaultValues: {
       name: 'My name',
       email: '',
