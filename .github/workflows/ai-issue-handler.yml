@@ -21,6 +21,12 @@ on:
           The main file is lib/useForm.ts.
           Follow React best practices and maintain type safety.
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+
 env:
   MIN_UPVOTES: ${{ github.event.inputs.min_upvotes || 2 }}
   AI_CONTEXT: ${{ github.event.inputs.ai_context || 'Default AI context' }}
@@ -48,7 +54,8 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
               })
-            return issue.data.reactions['+1'] >= Number(process.env.MIN_UPVOTES)
+            return issue.data.reactions['+1'] >= process.env.MIN_UPVOTES
+
       - name: Analyze issue with Copilot
         id: analyze-issue-with-copilot
         if: steps.count-upvotes.outputs.result == 'true'
@@ -115,8 +122,8 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request
-            const minUpvotes = parseInt(process.env.MIN_UPVOTES, 10)
-            return pr.reactions['+1'] >= minUpvotes
+            return pr.reactions['+1'] >= process.env.MIN_UPVOTES
+
       - name: Merge PR
         if: steps.count-pr-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
