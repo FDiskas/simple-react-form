@@ -48,8 +48,7 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: context.payload.issue?.number || context.payload.comment?.issue_number
               })
-            return issue.data.reactions['+1'] >= process.env.MIN_UPVOTES
-
+            return issue.data.reactions['+1'] >= Number(process.env.MIN_UPVOTES)
       - name: Analyze issue with Copilot
         id: analyze-issue-with-copilot
         if: steps.count-upvotes.outputs.result == 'true'
@@ -116,8 +115,8 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request
-            return pr.reactions['+1'] >= process.env.MIN_UPVOTES
-
+            const minUpvotes = parseInt(process.env.MIN_UPVOTES, 10)
+            return pr.reactions['+1'] >= minUpvotes
       - name: Merge PR
         if: steps.count-pr-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
