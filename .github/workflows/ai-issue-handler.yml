@@ -50,9 +50,9 @@ permissions:
 # Environment variables available to all jobs
 env:
   # Minimum upvotes (+1 reactions) required on the ISSUE to trigger a PR
-  MIN_ISSUE_UPVOTES: ${{ github.event.inputs.min_issue_upvotes || vars.DEFAULT_MIN_ISSUE_UPVOTES || 1 }}
+  MIN_ISSUE_UPVOTES: ${{ github.event.inputs.min_issue_upvotes || vars.DEFAULT_MIN_ISSUE_UPVOTES || '1' }}
   # Minimum upvotes (+1 reactions/comments) required on the PR to trigger auto-merge
-  MIN_PR_UPVOTES: ${{ github.event.inputs.min_pr_upvotes || vars.DEFAULT_MIN_PR_UPVOTES || 1 }}
+  MIN_PR_UPVOTES: ${{ github.event.inputs.min_pr_upvotes || vars.DEFAULT_MIN_PR_UPVOTES || '1' }}
   # Context provided to the AI model
   AI_CONTEXT: "${{ github.event.inputs.ai_context || 'Default AI context: Please adhere to project conventions.' }}"
   # The file the AI should modify
@@ -63,7 +63,7 @@ env:
   OPENAI_MODEL: ${{ github.event.inputs.openai_model || 'gpt-4' }}
   # Use a Personal Access Token (PAT) with necessary scopes for cross-workflow triggers or advanced operations if needed
   # GITHUB_TOKEN has limitations in triggering other workflows.
-  ACTION_PAT: ${{ secrets.ACTION_PAT || secrets.GITHUB_TOKEN }} # Fallback to GITHUB_TOKEN if PAT not set
+  ACTION_PAT: ${{ secrets.ACTION_PAT || secrets.PR_TOKEN || secrets.GITHUB_TOKEN }} # Fallback to GITHUB_TOKEN if PAT not set
 
 jobs:
   # Job 1: Process the issue, generate AI fix, and create a PR
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     # Outputs for use in subsequent jobs
     outputs:
-      pr_number: ${{ steps.create_pr.outputs.pull_request_number }}
+      pr_number: ${{ steps.create_pr.outputs.pr_number }}
       branch_name: ${{ steps.create_branch.outputs.branch_name }}
       processed_issue_number: ${{ steps.check_issue.outputs.issue_number }}
       should_run_merge_job: ${{ steps.create_pr.outputs.created_pr == 'true' }} # Signal if PR was created
@@ -95,7 +95,7 @@ jobs:
         id: check_issue
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PR_TOKEN }} # Use PAT for potentially broader API access
+          github-token: ${{ env.ACTION_PAT }} # Use PAT for potentially broader API access
           script: |
             const minUpvotes = parseInt(process.env.MIN_ISSUE_UPVOTES);
             let issueNumber;
@@ -382,7 +382,7 @@ jobs:
         if: steps.commit_and_push.outputs.committed == 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PR_TOKEN }}
+          github-token: ${{ env.ACTION_PAT }}
           script: |
             const { data: repo } = await github.rest.repos.get({
               owner: context.repo.owner,
@@ -398,7 +398,7 @@ jobs:
         if: steps.commit_and_push.outputs.committed == 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PR_TOKEN }} # Use PAT to ensure permissions and trigger potential other workflows
+          github-token: ${{ env.ACTION_PAT }} # Use PAT to ensure permissions and trigger potential other workflows
           script: |
             const branchName = '${{ steps.create_branch.outputs.branch_name }}';
             const issueNumber = ${{ steps.check_issue.outputs.issue_number }};
@@ -419,29 +419,29 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `feat(ai): Fix issue #${issueNumber} - ${issueTitle}`,
-                body: `This PR provides an AI-generated solution for issue #${issueNumber}.\n\n**Original Issue Request:**\n\n\`\`\`\n${escapedIssueBody}\n\`\`\`\n\nCloses #${issueNumber}`, // Automatically closes issue when PR merges
+                body: `This PR provides an AI-generated solution for issue #${issueNumber}.\n\n**Original Issue Request:**\n\n\`\`\`\n${escapedIssueBody}\n\`\`\`\n\nCloses #${issueNumber}`, # Automatically closes issue when PR merges
                 head: branchName,
                 base: defaultBranch,
-                draft: false // Set to true if you want draft PRs first
+                draft: false # Set to true if you want draft PRs first
               });
 
               console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
-              core.setOutput('pull_request_number', pullRequest.number.toString());
+              core.setOutput('pr_number', pullRequest.number.toString());
               core.setOutput('created_pr', 'true'); # Signal that PR was created
 
-              // Add comment to the original issue
+              # Optional: Comment on the issue after creating the PR
               await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `✅ AI has created PR #${pullRequest.number} to address this issue: ${pullRequest.html_url}`
+                 owner: context.repo.owner,
+                 repo: context.repo.repo,
+                 issue_number: issueNumber,
+                 body: `✅ AI has created PR #${pullRequest.number} to address this issue: ${pullRequest.html_url}`
               });
               console.log(`Commented on issue #${issueNumber}`);
 
-              // Request review
+              # Request review
               if (aiReviewer) {
                 try {
-                  // Check if reviewer is likely a team slug (contains '/')
+                  # Check if reviewer is likely a team slug (contains '/')
                   let reviewers = [];
                   let team_reviewers = [];
                   if (aiReviewer.includes('/')) {
@@ -472,12 +472,12 @@ jobs:
                core.setFailed(`Failed to create PR or perform post-creation steps: ${error.message}`);
                core.setOutput('created_pr', 'false');
             }
-        # Fallback if previous steps were skipped
+      - name: Skip PR creation fallback
         if: steps.check_issue.outputs.should_process != 'true' || steps.apply_ai_fix.outputs.modified != 'true' || steps.commit_and_push.outputs.committed != 'true'
         run: |
           echo "Skipping PR creation because preconditions were not met (issue not processed, AI made no changes, or commit failed)."
           # Ensure output is set even in skipped cases for the 'needs' condition later
-          echo "::set-output name=created_pr::false"
+          echo "created_pr=false" >> $GITHUB_OUTPUT
 
 
   # Job 2: Automatically merge the PR if it gets enough upvotes
@@ -498,12 +498,12 @@ jobs:
         id: check_pr
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PR_TOKEN }}
+          github-token: ${{ env.ACTION_PAT }}
           script: |
             const prNumber = parseInt('${{ needs.process_issue.outputs.pr_number }}');
             const minPrUpvotes = parseInt(process.env.MIN_PR_UPVOTES);
 
-            // Add a delay before checking PR status to allow GitHub API to update (e.g., mergeable state)
+            # Add a delay before checking PR status to allow GitHub API to update (e.g., mergeable state)
             await new Promise(resolve => setTimeout(resolve, 15000)); # 15 seconds delay
 
             if (isNaN(prNumber)) {
@@ -620,7 +620,7 @@ jobs:
         if: steps.check_pr.outputs.should_merge == 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PR_TOKEN }} # PAT likely needed for merge permissions / bypassing branch protection
+          github-token: ${{ env.ACTION_PAT }} # PAT likely needed for merge permissions / bypassing branch protection
           script: |
             const prNumber = parseInt('${{ needs.process_issue.outputs.pr_number }}');
             const minPrUpvotes = parseInt(process.env.MIN_PR_UPVOTES);
