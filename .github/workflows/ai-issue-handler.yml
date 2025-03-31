@@ -278,6 +278,21 @@ jobs:
             console.log(`Closed issue #${issueNumber} as PR #${pullRequest.number} has been created`);
             
             core.setOutput('pull_request_number', pullRequest.number.toString());
+            
+            // Add GitHub Copilot as a reviewer
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullRequest.number,
+                reviewers: [], // Has to be empty for team reviewers to work
+                team_reviewers: ['copilot']
+              });
+              console.log('Added GitHub Copilot as reviewer');
+            } catch (error) {
+              console.log(`Failed to add GitHub Copilot as reviewer: ${error.message}`);
+              // Continue workflow even if this fails
+            }
 
   merge-pr:
     runs-on: ubuntu-latest
