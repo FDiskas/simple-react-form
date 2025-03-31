@@ -53,6 +53,15 @@ jobs:
         with:
           debug: true
           script: |
+            // Skip comments made by the repo owner that were created by our workflow
+            // This prevents infinite loops when the PR_TOKEN comments as the owner
+            if (context.payload.comment && 
+                context.payload.comment.user.login === context.repo.owner &&
+                context.payload.comment.body.includes("I've created PR #")) {
+              console.log('Skipping comment made by workflow to prevent infinite loop');
+              return core.setOutput('result', 'false');
+            }
+            
             try {
               console.log('Context payload:', JSON.stringify(context.payload));
               
@@ -74,6 +83,20 @@ jobs:
                 issue_number: issueNumber
               });
               
+              // Skip processing if the issue is not open
+              if (issue.state !== 'open') {
+                console.log(`Issue #${issueNumber} is not open (state: ${issue.state}). Skipping.`);
+                core.setOutput('result', 'false');
+                return false;
+              }
+              
+              console.log(`Issue title: ${issue.title}`);
+              console.log(`Issue body: ${issue.body}`);
+              
+              // Store issue details for other steps
+              core.setOutput('issue_title', issue.title);
+              core.setOutput('issue_body', issue.body);
+
               console.log(`Issue reactions: ${JSON.stringify(issue.reactions)}`);
               
               const upvotes = issue.reactions ? issue.reactions['+1'] : 0;
@@ -242,6 +265,17 @@ jobs:
               issue_number: issueNumber,
               body: `I've created PR #${pullRequest.number} with an AI-generated fix for this issue: ${pullRequest.html_url}`
             });
+            
+            // Close the associated issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              state: 'closed',
+              state_reason: 'completed'
+            });
+            
+            console.log(`Closed issue #${issueNumber} as PR #${pullRequest.number} has been created`);
             
             core.setOutput('pull_request_number', pullRequest.number.toString());
 
