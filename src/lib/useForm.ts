@@ -41,8 +41,6 @@ export type FormInputEvent = ChangeEvent<FormInputElement> | FormFieldValue;
 export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
   /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
   validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
-  /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
-  validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
   /** Initial values for form fields */
   defaultValues?: Partial<T>;
   /** Function to validate form values, returns error messages by field name */
