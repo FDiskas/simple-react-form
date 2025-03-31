@@ -449,13 +449,7 @@ export function useForm<TValues extends FormValues>({
           const submissionValues = getCurrentValues();
           logDebug('Submit Values');
           try {
-            const result = try {
             const result = await onSubmit(submissionValues);
-            return result;
-          } catch (error) {
-            console.error("Form submission error:", error);
-            throw error;
-          }
             return result;
           } catch (error) {
             console.error("Form submission error:", error);
