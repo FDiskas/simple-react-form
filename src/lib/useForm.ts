@@ -1,3 +1,6 @@
+// AI Fix for issue #15: Documentation
+// Based on user request: Update documentation to match the actual implementation...
+
 // AI Fix for issue #2: Form validation
 // Based on user request: I would like to have the ability to change when the form is validated, such as onBlur, onSubmit, etc.
 
