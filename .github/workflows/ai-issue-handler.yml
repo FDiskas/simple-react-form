@@ -132,17 +132,20 @@ jobs:
         run: |
           mkdir -p .github/copilot
           cat > .github/copilot/prompt.md << EOF
-          # Issue to fix: ${{ steps.get-issue.outputs.issue_title }}
+          # AI Request: Fix issue #${{ steps.count-upvotes.outputs.issue_number }}
           
-          ## Issue description
+          ## Issue title
+          ${{ steps.get-issue.outputs.issue_title }}
+          
+          ## User request (use this as the primary prompt)
           ${{ steps.get-issue.outputs.issue_body }}
           
-          ## Context information
+          ## Context information (keep this in mind)
           ${{ env.AI_CONTEXT }}
           
           ## Task
-          Based on the above issue, please modify the necessary files to fix the problem.
-          Focus on src/lib/useForm.ts as the main hook file.
+          Based on the user's request above, modify the src/lib/useForm.ts file to implement the requested feature or fix the reported issue.
+          Make the changes directly responsive to what the user is asking for in their issue.
           EOF
 
       - name: Apply simulated AI fix
@@ -161,23 +164,27 @@ jobs:
             exit 1
           fi
           
-          # Read the file content
-          FILE_CONTENT=$(cat $FILE_PATH)
+          # Create a temporary file for modifications
+          TMP_FILE=$(mktemp)
           
-          # Simulate AI fix based on issue keywords
-          if [[ "$ISSUE_TITLE $ISSUE_BODY" == *"typescript"* ]] || [[ "$ISSUE_TITLE $ISSUE_BODY" == *"type"* ]]; then
-            # Typescript fix
-            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// Improved type safety and error handling\n$FILE_CONTENT" > $FILE_PATH
-            echo "Applied TypeScript improvement fix"
-          elif [[ "$ISSUE_TITLE $ISSUE_BODY" == *"performance"* ]]; then
-            # Performance fix
-            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// Performance optimization\n$FILE_CONTENT" > $FILE_PATH
-            echo "Applied performance optimization fix"
-          else
-            # Generic fix
-            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// This fix addresses the reported issue by improving code quality\n$FILE_CONTENT" > $FILE_PATH
-            echo "Applied generic code improvement fix"
-          fi
+          # Add header with issue reference and user request
+          echo "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE" > $TMP_FILE
+          echo "// Based on user request: ${ISSUE_BODY:0:100}..." >> $TMP_FILE
+          echo "" >> $TMP_FILE
+          
+          # For demonstration purposes, we'll make a simple but meaningful improvement
+          # This simulates how an AI would respond to the issue body as a prompt
+          
+          # Add validation mode option - a common request for form libraries
+          cat $FILE_PATH | sed 's/export interface UseFormOptions<T extends Record<string, FormFieldValue>> {/export interface UseFormOptions<T extends Record<string, FormFieldValue>> {\n  \/** When to trigger validation: onBlur, onChange, onSubmit, or manual *\/\n  validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";/' >> $TMP_FILE
+          
+          # Update handleSubmit to include better error handling and optional reset
+          sed -i 's/await onSubmit(submissionValues);/try {\n            const result = await onSubmit(submissionValues);\n            return result;\n          } catch (error) {\n            console.error("Form submission error:", error);\n            throw error;\n          }/' $TMP_FILE
+          
+          # Replace the original file with the modified version
+          mv $TMP_FILE $FILE_PATH
+          
+          echo "Applied improvements based on user's issue request"
           
           # Mark as modified
           echo "modified_file=$FILE_PATH" >> $GITHUB_OUTPUT
@@ -194,6 +201,7 @@ jobs:
         if: steps.count-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
+          github-token: ${{ secrets.PR_TOKEN }}
           script: |
             const branchName = '${{ steps.create-fix-branch.outputs.branch_name }}';
             const issueNumber = ${{ steps.count-upvotes.outputs.issue_number }};
@@ -232,6 +240,7 @@ jobs:
         id: count-pr-upvotes
         uses: actions/github-script@v6
         with:
+          github-token: ${{ secrets.PR_TOKEN }}
           script: |
             try {
               console.log('Context payload:', JSON.stringify(context.payload));
@@ -316,6 +325,7 @@ jobs:
         if: steps.count-pr-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
+          github-token: ${{ secrets.PR_TOKEN }}
           script: |
             try {
               const prNumber = steps.count-pr-upvotes.outputs.pr_number;
