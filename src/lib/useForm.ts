@@ -1,5 +1,5 @@
 // AI Fix for issue #2: Form validation
-// Based on user request: I would to have ability to change when the form should be validated, like onBlur onSubmit and so on...
+// Based on user request: I would like to have the ability to change when the form is validated, such as onBlur, onSubmit, etc.
 
 import { useRef, useState, useCallback, FormEvent, ChangeEvent } from 'react';
 
