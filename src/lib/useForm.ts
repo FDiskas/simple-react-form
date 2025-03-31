@@ -1,3 +1,6 @@
+// AI Fix for issue #2: Form validation
+// Based on user request: I would like to have the ability to change when the form is validated, such as onBlur, onSubmit, etc.
+
 import { useRef, useState, useCallback, FormEvent, ChangeEvent } from 'react';
 
 /**
@@ -33,6 +36,8 @@ export type FormInputEvent = ChangeEvent<FormInputElement> | FormFieldValue;
  * Options for configuring the useForm hook behavior
  */
 export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
+  /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
+  validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
   /** Initial values for form fields */
   defaultValues?: Partial<T>;
   /** Function to validate form values, returns error messages by field name */
@@ -440,7 +445,13 @@ export function useForm<TValues extends FormValues>({
         if (isValid) {
           const submissionValues = getCurrentValues();
           logDebug('Submit Values');
-          await onSubmit(submissionValues);
+          try {
+            const result = await onSubmit(submissionValues);
+            return result;
+          } catch (error) {
+            console.error("Form submission error:", error);
+            throw error;
+          }
         }
       };
     },
