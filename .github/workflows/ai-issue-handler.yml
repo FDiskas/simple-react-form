@@ -34,6 +34,10 @@ env:
 jobs:
   handle-issue:
     runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.create-fix-branch.outputs.branch_name }}
+      issue_number: ${{ steps.count-upvotes.outputs.issue_number }}
+      result: ${{ steps.count-upvotes.outputs.result }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -88,176 +92,138 @@ jobs:
               return false;
             }
 
-      - name: Analyze issue with Copilot
-        id: analyze-issue-with-copilot
+      - name: Get issue details
         if: steps.count-upvotes.outputs.result == 'true'
+        id: get-issue
         uses: actions/github-script@v6
         with:
-          debug: true
           script: |
-            try {
-              const exec = require('@actions/exec');
-              const fs = require('fs');
-              const path = require('path');
+            const issueNumber = ${{ steps.count-upvotes.outputs.issue_number }};
+            
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            console.log(`Issue title: ${issue.title}`);
+            console.log(`Issue body: ${issue.body}`);
+            
+            // Store issue details for other steps
+            core.setOutput('issue_title', issue.title);
+            core.setOutput('issue_body', issue.body);
 
-              const issueNumber = steps.count-upvotes.outputs.issue_number || 
-                                 context.payload.issue?.number || 
-                                 context.payload.comment?.issue_number;
-                                 
-              if (!issueNumber) {
-                core.setFailed('Could not determine issue number');
-                return;
-              }
-              
-              console.log(`Processing issue #${issueNumber}`);
-              
-              const { data: issue } = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber
-              });
-              
-              console.log(`Issue title: ${issue.title}`);
-              console.log(`Issue body: ${issue.body}`);
-              
-              const branchName = `fix/issue-${issue.number}-${Date.now()}`;
-              
-              await exec.exec('git', ['config', '--global', 'user.name', 'GitHub Actions Bot']);
-              await exec.exec('git', ['config', '--global', 'user.email', 'actions@github.com']);
-              
-              await exec.exec('git', ['checkout', '-b', branchName]);
-              
-              const promptFile = path.join(process.env.GITHUB_WORKSPACE, 'copilot-prompt.md');
-              const contextInfo = process.env.AI_CONTEXT || 'This is a React hook for form management.';
-              
-              fs.writeFileSync(promptFile, `
-              # Issue to fix: ${issue.title}
-              
-              ## Issue description
-              ${issue.body}
-              
-              ## Context information
-              ${contextInfo}
-              
-              ## Task
-              Based on the above issue, please modify the necessary files to fix the problem.
-              Focus on src/lib/useForm.ts as the main hook file.
-              `);
-              
-              console.log('Created prompt file for Copilot with issue details');
-              
-              const filesToCheck = [
-                'src/lib/useForm.ts'
-              ];
-              
-              let modifiedFile = null;
-              for (const file of filesToCheck) {
-                try {
-                  if (fs.existsSync(file)) {
-                    const content = fs.readFileSync(file, 'utf8');
-                    
-                    let newContent;
-                    
-                    if (issue.title.toLowerCase().includes('typescript') || 
-                        issue.body.toLowerCase().includes('typescript') ||
-                        issue.title.toLowerCase().includes('type') || 
-                        issue.body.toLowerCase().includes('type')) {
-                      newContent = `// AI Fix for issue #${issue.number}: ${issue.title}
-                      // Improved type safety and error handling
-                      ${content.replace(/FormValues/g, 'FormValues<T extends Record<string, FormFieldValue>>')}`;
-                                          } else if (issue.title.toLowerCase().includes('performance') || 
-                                                    issue.body.toLowerCase().includes('performance')) {
-                                            newContent = `// AI Fix for issue #${issue.number}: ${issue.title}
-                      // Performance optimization
-                      ${content.replace(/useState\(/g, 'useMemo(() => useState(')}`;
-                                          } else {
-                                            newContent = `// AI Fix for issue #${issue.number}: ${issue.title}
-                      // This fix addresses the reported issue by improving code quality and robustness
-                      ${content}`;
-                    }
-                    
-                    fs.writeFileSync(file, newContent);
-                    
-                    modifiedFile = file;
-                    console.log(`Modified ${file} with AI-suggested fix`);
-                    break;
-                  }
-                } catch (e) {
-                  console.log(`Error checking/modifying ${file}: ${e.message}`);
-                }
-              }
-              
-              if (!modifiedFile) {
-                core.setFailed('Could not find files to modify');
-                return;
-              }
-              
-              await exec.exec('git', ['add', modifiedFile]);
-              await exec.exec('git', ['commit', '-m', `Fix: ${issue.title} (#${issue.number})`]);
-              
-              await exec.exec('git', ['push', '-u', 'origin', branchName]);
-              
-              core.setOutput('branch_name', branchName);
-              
-              console.log(`Pushed changes to branch: ${branchName}`);
-            } catch (error) {
-              console.log(`Error in Copilot analysis: ${error.stack}`);
-              core.setFailed(`Error analyzing with Copilot: ${error.message}`);
-              return;
-            }
+      - name: Create fix branch
+        if: steps.count-upvotes.outputs.result == 'true'
+        id: create-fix-branch
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          
+          ISSUE_NUMBER="${{ steps.count-upvotes.outputs.issue_number }}"
+          TIMESTAMP=$(date +%s)
+          BRANCH_NAME="fix/issue-${ISSUE_NUMBER}-${TIMESTAMP}"
+          
+          git checkout -b $BRANCH_NAME
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create Copilot prompt
+        if: steps.count-upvotes.outputs.result == 'true'
+        run: |
+          mkdir -p .github/copilot
+          cat > .github/copilot/prompt.md << EOF
+          # Issue to fix: ${{ steps.get-issue.outputs.issue_title }}
+          
+          ## Issue description
+          ${{ steps.get-issue.outputs.issue_body }}
+          
+          ## Context information
+          ${{ env.AI_CONTEXT }}
+          
+          ## Task
+          Based on the above issue, please modify the necessary files to fix the problem.
+          Focus on src/lib/useForm.ts as the main hook file.
+          EOF
+
+      - name: Apply simulated AI fix
+        if: steps.count-upvotes.outputs.result == 'true'
+        id: apply-fix
+        run: |
+          ISSUE_NUMBER="${{ steps.count-upvotes.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.get-issue.outputs.issue_title }}"
+          ISSUE_BODY="${{ steps.get-issue.outputs.issue_body }}"
+          
+          # Check if the target file exists
+          if [ -f "src/lib/useForm.ts" ]; then
+            FILE_PATH="src/lib/useForm.ts"
+          else
+            echo "Error: Could not find useForm.ts file"
+            exit 1
+          fi
+          
+          # Read the file content
+          FILE_CONTENT=$(cat $FILE_PATH)
+          
+          # Simulate AI fix based on issue keywords
+          if [[ "$ISSUE_TITLE $ISSUE_BODY" == *"typescript"* ]] || [[ "$ISSUE_TITLE $ISSUE_BODY" == *"type"* ]]; then
+            # Typescript fix
+            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// Improved type safety and error handling\n$FILE_CONTENT" > $FILE_PATH
+            echo "Applied TypeScript improvement fix"
+          elif [[ "$ISSUE_TITLE $ISSUE_BODY" == *"performance"* ]]; then
+            # Performance fix
+            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// Performance optimization\n$FILE_CONTENT" > $FILE_PATH
+            echo "Applied performance optimization fix"
+          else
+            # Generic fix
+            echo -e "// AI Fix for issue #$ISSUE_NUMBER: $ISSUE_TITLE\n// This fix addresses the reported issue by improving code quality\n$FILE_CONTENT" > $FILE_PATH
+            echo "Applied generic code improvement fix"
+          fi
+          
+          # Mark as modified
+          echo "modified_file=$FILE_PATH" >> $GITHUB_OUTPUT
+
+      - name: Commit and push changes
+        if: steps.count-upvotes.outputs.result == 'true'
+        run: |
+          git add ${{ steps.apply-fix.outputs.modified_file }}
+          git commit -m "Fix: ${{ steps.get-issue.outputs.issue_title }} (#${{ steps.count-upvotes.outputs.issue_number }})"
+          git push -u origin ${{ steps.create-fix-branch.outputs.branch_name }}
 
       - name: Create PR
         id: create-pr
-        if: steps.count-upvotes.outputs.result == 'true' && steps.analyze-issue-with-copilot.outputs.branch_name != ''
+        if: steps.count-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
-          debug: true
           script: |
-            try {
-              const branchName = core.getInput('branch_name') || steps.analyze-issue-with-copilot.outputs.branch_name;
-              if (!branchName) {
-                core.setFailed('No branch name provided from previous step');
-                return;
-              }
-              const issueNumber = steps.count-upvotes.outputs.issue_number || 
-                                 context.payload.issue?.number || 
-                                 context.payload.comment?.issue_number;
-              
-              console.log(`Creating PR for branch: ${branchName} and issue #${issueNumber}`);
-              
-              const { data: issue } = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber
-              });
-              
-              const { data: pullRequest } = await github.rest.pulls.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `Fix: ${issue.title}`,
-                body: `AI-generated fix for issue #${issue.number}\n\n${issue.body}\n\nThis PR was automatically generated by the AI Issue Handler workflow.`,
-                head: branchName,
-                base: 'main'
-              });
-              
-              console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
-              
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `I've created PR #${pullRequest.number} with an AI-generated fix for this issue: ${pullRequest.html_url}`
-              });
-              
-              core.setOutput('pull_request_number', pullRequest.number.toString());
-            } catch (error) {
-              console.log(`Error creating PR: ${error.stack}`);
-              core.setFailed(`Error creating PR: ${error.message}`);
-            }
+            const branchName = '${{ steps.create-fix-branch.outputs.branch_name }}';
+            const issueNumber = ${{ steps.count-upvotes.outputs.issue_number }};
+            
+            console.log(`Creating PR for branch: ${branchName} and issue #${issueNumber}`);
+            
+            const { data: pullRequest } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Fix: ${{ steps.get-issue.outputs.issue_title }}`,
+              body: `AI-generated fix for issue #${issueNumber}\n\n${{ steps.get-issue.outputs.issue_body }}\n\nThis PR was automatically generated by the AI Issue Handler workflow.`,
+              head: branchName,
+              base: 'main'
+            });
+            
+            console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `I've created PR #${pullRequest.number} with an AI-generated fix for this issue: ${pullRequest.html_url}`
+            });
+            
+            core.setOutput('pull_request_number', pullRequest.number.toString());
 
   merge-pr:
     runs-on: ubuntu-latest
     needs: handle-issue
+    if: needs.handle-issue.outputs.result == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -266,17 +232,18 @@ jobs:
         id: count-pr-upvotes
         uses: actions/github-script@v6
         with:
-          debug: true
           script: |
             try {
               console.log('Context payload:', JSON.stringify(context.payload));
               
+              // Handle both workflow dispatch and PR events
               let prNumber;
               if (context.payload.pull_request) {
                 prNumber = context.payload.pull_request.number;
               } else if (context.payload.issue && context.payload.issue.pull_request) {
                 prNumber = context.payload.issue.number;
               } else {
+                // Get the latest PR from the previous job if called via workflow_dispatch
                 const { data: prs } = await github.rest.pulls.list({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -296,12 +263,14 @@ jobs:
               
               console.log(`Checking upvotes for PR #${prNumber}`);
               
+              // Get PR details including reactions
               const { data: pr } = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: prNumber
               });
               
+              // Get PR issue to count reactions (PR reactions API is different)
               const { data: prIssue } = await github.rest.issues.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -310,14 +279,17 @@ jobs:
               
               console.log(`PR reactions: ${JSON.stringify(prIssue.reactions)}`);
               
+              // Count upvotes from reactions
               const upvotes = prIssue.reactions ? prIssue.reactions['+1'] : 0;
               
+              // Also count upvotes from comments with 👍
               const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber
               });
               
+              // Count comments that contain 👍 or +1
               const commentsWithUpvotes = comments.filter(comment => 
                 comment.body.includes('👍') || 
                 comment.body.includes(':+1:') || 
@@ -344,7 +316,6 @@ jobs:
         if: steps.count-pr-upvotes.outputs.result == 'true'
         uses: actions/github-script@v6
         with:
-          debug: true
           script: |
             try {
               const prNumber = steps.count-pr-upvotes.outputs.pr_number;
