@@ -12,7 +12,7 @@ on:
       min_upvotes:
         description: 'Minimum upvotes required'
         required: false
-        default: '2'
+        default: '1'
       ai_context:
         description: 'AI context for Copilot'
         required: false
