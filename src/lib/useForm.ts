@@ -1,3 +1,6 @@
+// AI Fix for issue #15: Documentation
+// Based on user request: Update documentation to match the actual implementation...
+
 // AI Fix for issue #2: Form validation
 // Based on user request: I would like to have the ability to change when the form is validated, such as onBlur, onSubmit, etc.
 
@@ -36,6 +39,8 @@ export type FormInputEvent = ChangeEvent<FormInputElement> | FormFieldValue;
  * Options for configuring the useForm hook behavior
  */
 export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
+  /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
+  validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
   /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
   validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
   /** Initial values for form fields */
@@ -446,7 +451,13 @@ export function useForm<TValues extends FormValues>({
           const submissionValues = getCurrentValues();
           logDebug('Submit Values');
           try {
+            const result = try {
             const result = await onSubmit(submissionValues);
+            return result;
+          } catch (error) {
+            console.error("Form submission error:", error);
+            throw error;
+          }
             return result;
           } catch (error) {
             console.error("Form submission error:", error);
