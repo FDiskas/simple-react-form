@@ -189,6 +189,13 @@ jobs:
           # Mark as modified
           echo "modified_file=$FILE_PATH" >> $GITHUB_OUTPUT
 
+      - name: Commit and push changes
+        if: steps.count-upvotes.outputs.result == 'true'
+        run: |
+          git add ${{ steps.apply-fix.outputs.modified_file }}
+          git commit -m "Fix: ${{ steps.get-issue.outputs.issue_title }} (#${{ steps.count-upvotes.outputs.issue_number }})"
+          git push -u origin ${{ steps.create-fix-branch.outputs.branch_name }}
+
       - name: Get default branch
         if: steps.count-upvotes.outputs.result == 'true'
         id: default-branch
@@ -237,13 +244,6 @@ jobs:
             });
             
             core.setOutput('pull_request_number', pullRequest.number.toString());
-
-      - name: Commit and push changes
-        if: steps.count-upvotes.outputs.result == 'true'
-        run: |
-          git add ${{ steps.apply-fix.outputs.modified_file }}
-          git commit -m "Fix: ${{ steps.get-issue.outputs.issue_title }} (#${{ steps.count-upvotes.outputs.issue_number }})"
-          git push -u origin ${{ steps.create-fix-branch.outputs.branch_name }}
 
   merge-pr:
     runs-on: ubuntu-latest
