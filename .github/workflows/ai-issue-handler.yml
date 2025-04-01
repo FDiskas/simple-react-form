@@ -403,9 +403,9 @@ jobs:
             const branchName = '${{ steps.create_branch.outputs.branch_name }}';
             const issueNumber = ${{ steps.check_issue.outputs.issue_number }};
             const defaultBranch = '${{ steps.default_branch.outputs.default_branch }}';
-            // Decode title and body directly in the script
-            const issueTitle = decodeURIComponent('${{ steps.check_issue.outputs.issue_title }}'.replace(/\+/g, ' '));
-            const issueBody = decodeURIComponent('${{ steps.check_issue.outputs.issue_body }}'.replace(/\+/g, ' '));
+            // Fix: use JSON.stringify to properly escape the values before passing to JavaScript
+            const issueTitle = decodeURIComponent(${{ toJSON(steps.check_issue.outputs.issue_title) }}.replace(/\+/g, ' '));
+            const issueBody = decodeURIComponent(${{ toJSON(steps.check_issue.outputs.issue_body) }}.replace(/\+/g, ' '));
             const aiReviewer = process.env.AI_REVIEWER;
 
             console.log(`Creating PR for branch: ${branchName} targeting ${defaultBranch}`);
