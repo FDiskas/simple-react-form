@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useForm, FormValues } from '../lib/useForm';
+import { useForm } from '../lib/useForm';
 
 // Define the form shape for profile info
-interface ProfileForm extends FormValues {
+interface ProfileForm {
   firstName: string;
   lastName: string;
   bio: string;

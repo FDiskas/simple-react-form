@@ -1,24 +1,9 @@
-// AI Fix for issue #15: Documentation
-// Based on user request: Update documentation to match the actual implementation...
-
-// AI Fix for issue #2: Form validation
-// Based on user request: I would like to have the ability to change when the form is validated, such as onBlur, onSubmit, etc.
-
-import { useRef, useState, useCallback, FormEvent, ChangeEvent } from 'react';
+import * as React from 'react';
 
 /**
  * Union type of all possible form field value types
  */
-export type FormFieldValue =
-  | string
-  | number
-  | boolean
-  | string[]
-  | number[]
-  | File
-  | FileList
-  | null
-  | undefined;
+export type FormFieldValue = string | number | boolean | string[] | number[] | File | FileList | null | undefined;
 
 /**
  * Generic type for form values
@@ -33,14 +18,12 @@ export type FormInputElement = HTMLInputElement | HTMLSelectElement | HTMLTextAr
 /**
  * Type for form input change events
  */
-export type FormInputEvent = ChangeEvent<FormInputElement> | FormFieldValue;
+export type FormInputEvent = React.ChangeEvent<FormInputElement> | FormFieldValue;
 
 /**
  * Options for configuring the useForm hook behavior
  */
 export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
-  /** When to trigger validation: onBlur, onChange, onSubmit, or manual */
-  validationMode?: "onBlur" | "onChange" | "onSubmit" | "manual";
   /** Initial values for form fields */
   defaultValues?: Partial<T>;
   /** Function to validate form values, returns error messages by field name */
@@ -62,9 +45,13 @@ export interface UseFormReturn<T> {
   /** Tracks which fields have been interacted with */
   touched: Partial<Record<keyof T, boolean>>;
   /** Creates a submit handler that validates and processes form data */
-  handleSubmit: (onSubmit: (values: T) => void | Promise<void>) => (e: FormEvent) => Promise<void>;
+  handleSubmit: (
+    onSubmit: (values: T) => void | Promise<void>,
+  ) => (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   /** Creates props object for form fields including event handlers */
-  register: <K extends keyof T>(name: K) => {
+  register: <K extends keyof T>(
+    name: K,
+  ) => {
     name: K;
     defaultValue?: string;
     onChange: (e: FormInputEvent) => void;
@@ -85,37 +72,86 @@ export interface UseFormReturn<T> {
 /**
  * Custom hook for managing form state, validation, and submission
  *
- * @template TValues - Type for form values object
+ * @template T - Type for form values object
  * @param options - Configuration options for the form
  * @returns Form state and helper methods for managing the form
  */
-export function useForm<TValues extends FormValues>({
-  defaultValues = {} as Partial<TValues>,
+export function useForm<TValues>({
+  defaultValues,
   validator,
   controlled = false,
   debug = false,
-}: UseFormOptions<TValues>): UseFormReturn<TValues> {
-  // Storage for form values - either ref or state based on controlled option
-  const formRef = useRef<Partial<TValues>>({} as Partial<TValues>);
-  const defaultValuesRef = useRef(defaultValues);
-  
-  // Tracking metadata about form fields
-  const registeredFieldsRef = useRef<Set<keyof TValues>>(new Set());
-  const modifiedFieldsRef = useRef<Set<keyof TValues>>(new Set());
+}: {
+  defaultValues?: Partial<TValues>;
+  validator?: (values: TValues) => Partial<Record<keyof TValues, string>>;
+  controlled?: boolean;
+  debug?: boolean;
+}): UseFormReturn<TValues> {
+  type InferredT = TValues;
 
-  // State for UI updates and form status
-  const [values, setValues] = useState<Partial<TValues>>({} as Partial<TValues>);
-  const [errors, setErrors] = useState<Partial<Record<keyof TValues, string>>>({});
-  const [touched, setTouched] = useState<Partial<Record<keyof TValues, boolean>>>({});
-  const [isDirty, setIsDirty] = useState(false);
+  const { defaultValues: initialDefaultValues = {} as Partial<InferredT> } = { defaultValues };
+
+  // Create refs and state for form state management
+  const formRef = React.useRef<Partial<InferredT>>({} as Partial<InferredT>);
+  const defaultValuesRef = React.useRef(initialDefaultValues);
+
+  // Track which fields have been touched by the user
+  const registeredFieldsRef = React.useRef<Set<keyof InferredT>>(new Set());
+  // Track which fields have been modified by the user (including emptying a field)
+  const modifiedFieldsRef = React.useRef<Set<keyof InferredT>>(new Set());
+
+  const [values, setValues] = React.useState<Partial<InferredT>>({} as Partial<InferredT>);
+  const [errors, setErrors] = React.useState<Partial<Record<keyof InferredT, string>>>({});
+  const [touched, setTouched] = React.useState<Partial<Record<keyof InferredT, boolean>>>({});
+  const [isDirty, setIsDirty] = React.useState(false);
 
   /**
-   * Logs form state for debugging purposes
+   * Gets the current form values merged with defaults for unregistered fields
    */
-  const logDebug = useCallback(
+  const getCurrentValues = React.useCallback((): InferredT => {
+    // First, get the current form values (from state or ref)
+    const currentFormValues = controlled ? values : formRef.current;
+
+    // Start with a fresh object
+    const result = {} as Record<keyof InferredT, unknown>;
+
+    // Apply all default values first
+    for (const key in defaultValuesRef.current) {
+      if (Object.prototype.hasOwnProperty.call(defaultValuesRef.current, key)) {
+        const typedKey = key as keyof InferredT;
+        result[typedKey] = (defaultValuesRef.current as Partial<InferredT>)[typedKey];
+      }
+    }
+
+    // Override with current form values for all modified fields
+    // This ensures emptied fields are properly respected even when they have default values
+    for (const key of modifiedFieldsRef.current) {
+      const typedKey = key as keyof InferredT;
+      // Always use current value for modified fields, even if empty
+      result[typedKey] = currentFormValues[typedKey];
+    }
+
+    // Include any other fields in currentFormValues that weren't explicitly modified
+    // but were programmatically set (e.g., via setValue)
+    for (const key in currentFormValues) {
+      if (
+        Object.prototype.hasOwnProperty.call(currentFormValues, key) &&
+        !modifiedFieldsRef.current.has(key as keyof InferredT)
+      ) {
+        const typedKey = key as keyof InferredT;
+        result[typedKey] = currentFormValues[typedKey];
+      }
+    }
+
+    return result as InferredT;
+  }, [controlled, values]);
+
+  const debugFormValues = React.useCallback(
     (label: string) => {
-      if (!debug) return;
-      
+      if (!debug) {
+        return;
+      } // Only log if debug is enabled
+
       console.group(`Form Debug: ${label}`);
       console.log('Current Values:', getCurrentValues());
       console.log('Modified Fields:', Array.from(modifiedFieldsRef.current));
@@ -124,267 +160,245 @@ export function useForm<TValues extends FormValues>({
       console.log('Default Values:', defaultValuesRef.current);
       console.groupEnd();
     },
-    [debug, controlled, values]
+    [getCurrentValues, controlled, values, debug],
   );
-
-  /**
-   * Gets the current form values merged with defaults
-   */
-  const getCurrentValues = useCallback((): TValues => {
-    const currentFormValues = controlled ? values : formRef.current;
-    const result = {} as Record<keyof TValues, unknown>;
-    
-    // First apply default values as the base
-    Object.entries(defaultValuesRef.current).forEach(([key, value]) => {
-      result[key as keyof TValues] = value;
-    });
-    
-    // Then override with modified field values, even if empty/falsy
-    modifiedFieldsRef.current.forEach(key => {
-      result[key] = currentFormValues[key];
-    });
-    
-    // Finally include any other programmatically set values
-    Object.entries(currentFormValues).forEach(([key, value]) => {
-      if (!modifiedFieldsRef.current.has(key as keyof TValues)) {
-        result[key as keyof TValues] = value;
-      }
-    });
-
-    return result as TValues;
-  }, [controlled, values]);
 
   /**
    * Validates form values using the provided validator function
    */
-  const validate = useCallback(async (): Promise<boolean> => {
-    if (!validator) return true;
+  const validate = React.useCallback(async (): Promise<boolean> => {
+    if (!validator) {
+      return true;
+    }
 
     const currentValues = getCurrentValues();
-    const validationErrors = await validator(currentValues);
-    setErrors(validationErrors);
-    
-    return Object.keys(validationErrors).length === 0;
+    const validationErrors = await validator(currentValues as TValues);
+    const hasErrors = Object.keys(validationErrors).length > 0;
+
+    setErrors(validationErrors as Partial<Record<keyof InferredT, string>>);
+
+    return !hasErrors;
   }, [getCurrentValues, validator]);
 
   /**
-   * Updates form values and marks the field as modified
+   * Updates form values based on input changes
    */
-  const updateFormValue = useCallback(
-    <K extends keyof TValues>(name: K, value: TValues[K]) => {
+  const updateFormValue = React.useCallback(
+    <K extends keyof InferredT>(name: K, value: InferredT[K]) => {
+      // Mark this field as modified by the user
       modifiedFieldsRef.current.add(name);
-      
+
       if (controlled) {
-        setValues(prev => ({ ...prev, [name]: value }));
+        setValues((prev) => ({ ...prev, [name]: value }));
       } else {
         formRef.current = { ...formRef.current, [name]: value };
       }
-      
+
       setIsDirty(true);
-      logDebug(`After Update: ${String(name)}`);
+      debugFormValues(`After Update: ${String(name)}`); // Add this line
     },
-    [controlled, logDebug]
+    [controlled, debugFormValues],
   );
 
   /**
-   * Handles checkbox input value updates
+   * Processes the input change event and extracts the appropriate value
    */
-  const handleCheckboxChange = useCallback(
-    (name: keyof TValues, target: HTMLInputElement, currentValue: FormFieldValue) => {
-      const { value, checked } = target;
-      const defaultValue = defaultValuesRef.current[name];
-      const isCheckboxGroup = Array.isArray(defaultValue) || Array.isArray(currentValue);
-      
-      if (!isCheckboxGroup) {
-        // Simple boolean checkbox
-        return checked;
-      }
-      
-      // For checkbox groups (array of values)
-      let currentArray: unknown[] = [];
-      
-      if (Array.isArray(currentValue)) {
-        currentArray = [...currentValue];
-      } else if (Array.isArray(defaultValue)) {
-        currentArray = [...defaultValue];
-      }
-      
-      if (checked) {
-        // Add value if not already in array
-        if (!currentArray.includes(value)) {
-          currentArray.push(value);
-        }
-      } else {
-        // Remove value from array
-        currentArray = currentArray.filter(v => v !== value);
-      }
-      
-      return currentArray;
-    },
-    []
-  );
+  const handleInputChange = React.useCallback(
+    (name: keyof InferredT, e: React.ChangeEvent<HTMLInputElement>) => {
+      // Direct value from custom component
+      if (e === null || e === undefined || !e.target) {
+        updateFormValue(name, e as InferredT[typeof name]);
 
-  /**
-   * Handles multi-select input value updates
-   */
-  const handleMultiSelectChange = useCallback(
-    (target: HTMLSelectElement) => {
-      return Array.from(target.options)
-        .filter(option => option.selected)
-        .map(option => option.value);
-    },
-    []
-  );
-
-  /**
-   * Processes input change events and extracts appropriate values
-   */
-  const handleInputChange = useCallback(
-    (name: keyof TValues, e: FormInputEvent) => {
-      // Handle direct value assignment (not an event object)
-      if (e === null || e === undefined || !(e as ChangeEvent<FormInputElement>).target) {
-        updateFormValue(name, e as TValues[typeof name]);
         return;
       }
-      
+
+      // Always mark field as modified when handleInputChange is called
+      // This ensures we track all modifications through React's event system
       modifiedFieldsRef.current.add(name);
-      const target = (e as ChangeEvent<FormInputElement>).currentTarget;
+
+      const target = e.currentTarget;
       const inputType = target.type;
-      const currentValue = getCurrentValues()[name];
-      
+      const currentFieldValue = getCurrentValues()[name];
       let newValue: unknown;
-      
-      // Extract value based on input type
+
+      // Handle checkbox
       if (inputType === 'checkbox') {
-        newValue = handleCheckboxChange(name, target as HTMLInputElement, currentValue);
-      } else if (inputType === 'radio') {
+        // Check if this is a checkbox group (has a default array value)
+        const defaultValue = defaultValuesRef.current[name as keyof typeof defaultValuesRef.current];
+        const isCheckboxGroup = Array.isArray(defaultValue) || Array.isArray(currentFieldValue);
+
+        if (isCheckboxGroup) {
+          // Handle checkbox groups (array of values)
+          const { value, checked } = target as HTMLInputElement;
+
+          // Important: We need to get the FULL array of currently checked values
+          // This ensures we don't lose existing selections when a new checkbox is clicked
+          let currentArray: unknown[] = [];
+
+          // If it exists in current form values, use that
+          if (Array.isArray(currentFieldValue)) {
+            currentArray = [...currentFieldValue];
+          }
+          // Otherwise, fall back to default values if available
+          else if (Array.isArray(defaultValue)) {
+            currentArray = [...defaultValue];
+          }
+
+          // Now update our array with the new selection
+          if (checked) {
+            // Add value if not already in array
+            if (!currentArray.includes(value)) {
+              currentArray.push(value);
+            }
+          } else {
+            // Remove value from array
+            currentArray = currentArray.filter((v) => v !== value);
+          }
+
+          newValue = currentArray;
+        } else {
+          // Regular boolean checkbox
+          newValue = (target as HTMLInputElement).checked;
+        }
+      }
+      // Handle radio button
+      else if (inputType === 'radio') {
         newValue = target.value;
-      } else if (inputType === 'select-multiple' && target instanceof HTMLSelectElement) {
-        newValue = handleMultiSelectChange(target);
-      } else {
-        // Standard text, number, etc. inputs
+      }
+      // Handle multi-select
+      else if (inputType === 'select-multiple' && target instanceof HTMLSelectElement) {
+        newValue = Array.from(target.options)
+          .filter((option) => option.selected)
+          .map((option) => option.value);
+      }
+      // Handle default inputs (text, select, etc.)
+      else {
         newValue = target.value;
       }
-      
-      updateFormValue(name, newValue as TValues[keyof TValues]);
+
+      updateFormValue(name, newValue as InferredT[keyof InferredT]);
     },
-    [getCurrentValues, updateFormValue, handleCheckboxChange, handleMultiSelectChange]
+    [getCurrentValues, updateFormValue],
   );
 
   /**
-   * Sets up checkbox or radio button initial state
+   * Handles setup of input elements based on their type
    */
-  const setupCheckboxOrRadio = useCallback(
-    (element: HTMLInputElement, currentValue: unknown) => {
-      if (element.type === 'checkbox' && Array.isArray(currentValue)) {
-        element.checked = currentValue.includes(element.value);
-      } else if (element.type === 'radio') {
-        element.checked = String(currentValue) === String(element.value);
-      } else if (element.type === 'checkbox' && typeof currentValue === 'boolean') {
-        element.checked = !!currentValue;
+  const setupInputElement = React.useCallback(
+    <K extends keyof InferredT>(element: FormInputElement | null, name: K, currentValue: unknown) => {
+      if (!element) {
+        return;
       }
-    },
-    []
-  );
 
-  /**
-   * Sets up select element initial state
-   */
-  const setupSelectElement = useCallback(
-    (element: HTMLSelectElement, currentValue: unknown) => {
-      if (element.multiple && Array.isArray(currentValue)) {
-        Array.from(element.options).forEach(option => {
-          option.selected = currentValue.includes(option.value);
-        });
-      } else if (currentValue !== undefined) {
-        element.value = String(currentValue);
-      }
-    },
-    []
-  );
-
-  /**
-   * Sets up input element initial state based on its type
-   */
-  const setupInputElement = useCallback(
-    <K extends keyof TValues>(element: FormInputElement | null, name: K, currentValue: unknown) => {
-      if (!element) return;
-      
+      // Mark this field as registered (visible in the form)
       registeredFieldsRef.current.add(name);
-      
-      // Initial setup for different element types
+
+      // Set initial value for non-radio/checkbox inputs
       if (element instanceof HTMLInputElement) {
-        const isCheckOrRadio = element.type === 'checkbox' || element.type === 'radio';
-        
-        if (!isCheckOrRadio && element.type !== 'file') {
+        if (element.type === 'checkbox' || element.type === 'radio') {
+          // Handle setup in the timeout below
+        } else if (element.type !== 'file') {
+          // Don't set value for file inputs (browser security)
           element.defaultValue = currentValue !== undefined ? String(currentValue) : '';
         }
       } else if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement) {
         element.value = currentValue !== undefined ? String(currentValue) : '';
       }
-      
+
       // Use setTimeout to ensure DOM is ready
       setTimeout(() => {
-        if (element instanceof HTMLSelectElement) {
-          setupSelectElement(element, currentValue);
-        } else if (element instanceof HTMLInputElement && 
-                  (element.type === 'checkbox' || element.type === 'radio')) {
-          setupCheckboxOrRadio(element, currentValue);
+        // Handle select-multiple
+        if (element instanceof HTMLSelectElement && element.multiple && Array.isArray(currentValue)) {
+          Array.from(element.options).forEach((option) => {
+            option.selected = currentValue.includes(option.value);
+          });
+        }
+        // Handle single select
+        else if (element instanceof HTMLSelectElement && currentValue !== undefined) {
+          element.value = String(currentValue);
+        }
+        // Handle checkboxes and radio buttons
+        else if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) {
+          if (element.type === 'checkbox' && Array.isArray(currentValue)) {
+            element.checked = currentValue.includes(element.value);
+          } else if (element.type === 'radio') {
+            element.checked = String(currentValue) === String(element.value);
+          } else if (element.type === 'checkbox' && typeof currentValue === 'boolean') {
+            element.checked = !!currentValue;
+          }
         }
       }, 0);
     },
-    [setupCheckboxOrRadio, setupSelectElement]
+    [],
   );
 
   /**
    * Registers a form field and returns props for binding to inputs
    */
-  const register = useCallback(
-    <K extends keyof TValues>(name: K) => {
+  const register = React.useCallback(
+    <K extends keyof InferredT>(name: K) => {
       const currentValue = getCurrentValues()[name];
-      
-      return {
+
+      const props = {
         name,
-        onChange: (e: FormInputEvent) => handleInputChange(name, e),
+        onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(name, e),
         onBlur: () => {
-          setTouched(prev => ({ ...prev, [name]: true }));
+          setTouched((prev) => ({ ...prev, [name]: true }));
+          // Mark as modified on blur as well to catch any direct input
+          // that might bypass the onChange handler
           modifiedFieldsRef.current.add(name);
           validate();
         },
         ref: (element: FormInputElement | null) => setupInputElement(element, name, currentValue),
       };
+
+      return props;
     },
-    [getCurrentValues, handleInputChange, setupInputElement, validate]
+    [getCurrentValues, handleInputChange, setupInputElement, validate],
   );
 
   /**
    * Sets a field value programmatically
    */
-  const setValue = useCallback(
-    <K extends keyof TValues>(name: K, value: TValues[K]) => {
+  const setValue = React.useCallback(
+    <K extends keyof InferredT>(name: K, value: InferredT[K]) => {
       updateFormValue(name, value);
     },
-    [updateFormValue]
+    [updateFormValue],
   );
 
   /**
-   * Resets input elements to their default values
+   * Resets the form to its default values
    */
-  const resetDOMElements = useCallback(() => {
-    if (!defaultValues) return;
-    
+  const reset = React.useCallback(() => {
+    // Clear the form values completely, so they'll revert to defaults
+    if (controlled) {
+      setValues({} as Partial<InferredT>);
+    } else {
+      formRef.current = {} as Partial<InferredT>;
+    }
+
+    // Clear both sets of tracked fields
+    registeredFieldsRef.current.clear();
+    modifiedFieldsRef.current.clear();
+
+    // Reset DOM elements
     const formElements = document.querySelectorAll('form input, form select, form textarea');
-    formElements.forEach(element => {
-      const input = element as FormInputElement;
-      const name = input.name as keyof typeof defaultValues;
-      
-      if (!name || !(name in defaultValues)) return;
-      
-      const defaultValue = defaultValues[name];
-      
+    formElements.forEach((element) => {
+      const input = element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      const name = input.name;
+
+      // Fix for "defaultValues is possibly undefined"
+      if (!name || !defaultValues || !(name in defaultValues)) {
+        return;
+      }
+
+      const defaultValue = defaultValues[name as keyof typeof defaultValues];
+
       if (input instanceof HTMLInputElement) {
         if (input.type === 'checkbox' || input.type === 'radio') {
           if (Array.isArray(defaultValue)) {
+            // Fix for "Argument of type 'string' is not assignable to parameter of type 'never'"
             const valueArray = defaultValue as unknown[];
             input.checked = valueArray.includes(input.value);
           } else if (typeof defaultValue === 'boolean') {
@@ -397,8 +411,9 @@ export function useForm<TValues extends FormValues>({
         }
       } else if (input instanceof HTMLSelectElement) {
         if (input.multiple && Array.isArray(defaultValue)) {
+          // Fix for array type checking
           const valueArray = defaultValue as unknown[];
-          Array.from(input.options).forEach(option => {
+          Array.from(input.options).forEach((option) => {
             option.selected = valueArray.includes(option.value);
           });
         } else {
@@ -408,57 +423,33 @@ export function useForm<TValues extends FormValues>({
         input.value = defaultValue?.toString() || '';
       }
     });
-  }, [defaultValues]);
 
-  /**
-   * Resets the form to its default values
-   */
-  const reset = useCallback(() => {
-    // Clear form values
-    if (controlled) {
-      setValues({} as Partial<TValues>);
-    } else {
-      formRef.current = {} as Partial<TValues>;
-    }
-    
-    // Clear tracking metadata
-    registeredFieldsRef.current.clear();
-    modifiedFieldsRef.current.clear();
-    
-    // Reset DOM elements
-    resetDOMElements();
-    
     // Reset state
     setErrors({});
     setTouched({});
     setIsDirty(false);
-  }, [controlled, resetDOMElements]);
+  }, [controlled, defaultValues]);
 
   /**
    * Creates a submit handler that validates and processes form data
    */
-  const handleSubmit = useCallback(
-    (onSubmit: (values: TValues) => void | Promise<void>) => {
-      return async (e: FormEvent) => {
+  const handleSubmit = React.useCallback(
+    (onSubmit: (values: InferredT) => void | Promise<void>) => {
+      return async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        logDebug('Before Submit');
-        
+        debugFormValues('Before Submit'); // Add this line
+
         const isValid = await validate();
-        
+
         if (isValid) {
+          // Get values respecting modified fields
           const submissionValues = getCurrentValues();
-          logDebug('Submit Values');
-          try {
-            const result = await onSubmit(submissionValues);
-            return result;
-          } catch (error) {
-            console.error("Form submission error:", error);
-            throw error;
-          }
+          debugFormValues('Submit Values'); // Add this line
+          await onSubmit(submissionValues);
         }
       };
     },
-    [getCurrentValues, validate, logDebug]
+    [getCurrentValues, validate, debugFormValues],
   );
 
   return {
@@ -471,5 +462,5 @@ export function useForm<TValues extends FormValues>({
     reset,
     isDirty,
     isValid: Object.keys(errors).length === 0,
-  } as UseFormReturn<TValues>;
+  } as UseFormReturn<InferredT>;
 }
