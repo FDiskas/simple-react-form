@@ -217,7 +217,7 @@ jobs:
         run: |
           pip install openai==1.* # Install the latest V1 openai library
 
-          # Use python3 explicitly
+          # Use python3 explicitly with proper heredoc syntax
           python3 << 'EOF'
           import os
           import sys
@@ -332,25 +332,25 @@ jobs:
                   with open(target_file_path, 'w', encoding='utf-8') as f:
                       f.write(modified_content)
                   # Set outputs for subsequent steps
-                  print(f"::set-output name=modified::true")
+                  print("::set-output name=modified::true")
                   print(f"::set-output name=modified_file::{target_file_path}")
                   print("Successfully applied AI modifications.")
               except Exception as e:
                   print(f"::error::Failed to write modified content to '{target_file_path}': {e}")
                   # Attempt to restore original content on write failure? Maybe not, state is uncertain.
-                  print(f"::set-output name=modified::false") # Mark as not modified if write fails
+                  print("::set-output name=modified::false") # Mark as not modified if write fails
                   sys.exit(1)
           elif modified_content == original_content:
               print("AI returned the original content. No changes applied.")
-              print(f"::set-output name=modified::false")
+              print("::set-output name=modified::false")
           else:
               print("::warning::AI did not return valid content. No changes applied.")
-              print(f"::set-output name=modified::false")
-
-          EOF # End of Python script
+              print("::set-output name=modified::false")
+          EOF
 
       # Step 6: Commit and Push Changes
       - name: Commit and Push Changes
+        id: commit_and_push  # Add ID to this step for later reference
         # Use the output from the AI step's ID
         if: steps.apply_ai_fix.outputs.modified == 'true'
         run: |
@@ -419,17 +419,17 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `feat(ai): Fix issue #${issueNumber} - ${issueTitle}`,
-                body: `This PR provides an AI-generated solution for issue #${issueNumber}.\n\n**Original Issue Request:**\n\n\`\`\`\n${escapedIssueBody}\n\`\`\`\n\nCloses #${issueNumber}`, # Automatically closes issue when PR merges
+                body: `This PR provides an AI-generated solution for issue #${issueNumber}.\n\n**Original Issue Request:**\n\n\`\`\`\n${escapedIssueBody}\n\`\`\`\n\nCloses #${issueNumber}`, // Automatically closes issue when PR merges
                 head: branchName,
                 base: defaultBranch,
-                draft: false # Set to true if you want draft PRs first
+                draft: false // Set to true if you want draft PRs first
               });
 
               console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
               core.setOutput('pr_number', pullRequest.number.toString());
-              core.setOutput('created_pr', 'true'); # Signal that PR was created
+              core.setOutput('created_pr', 'true'); // Signal that PR was created
 
-              # Optional: Comment on the PR after merging
+              // Optional: Comment on the PR after merging
               await github.rest.issues.createComment({
                  owner: context.repo.owner,
                  repo: context.repo.repo,
@@ -438,14 +438,14 @@ jobs:
               });
               console.log(`Commented on issue #${issueNumber}`);
 
-              # Request review
+              // Request review
               if (aiReviewer) {
                 try {
-                  # Check if reviewer is likely a team slug (contains '/')
+                  // Check if reviewer is likely a team slug (contains '/')
                   let reviewers = [];
                   let team_reviewers = [];
                   if (aiReviewer.includes('/')) {
-                     team_reviewers.push(aiReviewer.split('/').pop()); # Get team slug part
+                     team_reviewers.push(aiReviewer.split('/').pop()); // Get team slug part
                      console.log(`Requesting review from team: ${team_reviewers[0]}`);
                   } else {
                      reviewers.push(aiReviewer);
@@ -503,8 +503,8 @@ jobs:
             const prNumber = parseInt('${{ needs.process_issue.outputs.pr_number }}');
             const minPrUpvotes = parseInt(process.env.MIN_PR_UPVOTES);
 
-            # Add a delay before checking PR status to allow GitHub API to update (e.g., mergeable state)
-            await new Promise(resolve => setTimeout(resolve, 15000)); # 15 seconds delay
+            // Add a delay before checking PR status to allow GitHub API to update (e.g., mergeable state)
+            await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds delay
 
             if (isNaN(prNumber)) {
                console.log("PR number is not valid from previous job. Skipping merge check.");
@@ -515,7 +515,7 @@ jobs:
             console.log(`Checking status and upvotes for PR #${prNumber}`);
 
             try {
-               # Get PR details - Retry logic might be needed if mergeable state is initially null
+               // Get PR details - Retry logic might be needed if mergeable state is initially null
                let pr;
                let attempts = 0;
                const maxAttempts = 3;
@@ -528,19 +528,19 @@ jobs:
                   });
                   pr = prData;
 
-                  # Check mergeable state specifically
+                  // Check mergeable state specifically
                   if (pr.mergeable === null && attempts < maxAttempts) {
                       console.log(`Mergeable state is null (attempt ${attempts}/${maxAttempts}). Retrying in 10 seconds...`);
-                      await new Promise(resolve => setTimeout(resolve, 10000)); # Wait 10 seconds
-                      continue; # Retry fetching PR data
+                      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+                      continue; // Retry fetching PR data
                   }
-                  # If mergeable is not null or max attempts reached, break loop
+                  // If mergeable is not null or max attempts reached, break loop
                   break;
                }
 
 
-               # --- Gate Checks ---
-               # 1. Check if PR is still open and mergeable
+               // --- Gate Checks ---
+               // 1. Check if PR is still open and mergeable
                if (pr.state !== 'open') {
                  console.log(`PR #${prNumber} is not open (state: ${pr.state}). Skipping merge.`);
                  core.setOutput('should_merge', 'false');
@@ -551,7 +551,7 @@ jobs:
                  core.setOutput('should_merge', 'false');
                  return;
                }
-               # Check mergeable state after potential retries
+               // Check mergeable state after potential retries
                if (pr.mergeable === null) {
                    console.log(`PR #${prNumber} mergeable state is still null after ${maxAttempts} attempts. Skipping merge.`);
                    core.setOutput('should_merge', 'false');
@@ -559,24 +559,24 @@ jobs:
                }
                if (pr.mergeable_state === 'blocked' || pr.mergeable_state === 'dirty' || !pr.mergeable) {
                   console.log(`PR #${prNumber} is not mergeable (state: ${pr.mergeable_state}, mergeable: ${pr.mergeable}). Skipping merge.`);
-                  # You could add comments here explaining why it's blocked (e.g., failing checks, requested changes)
+                  // You could add comments here explaining why it's blocked (e.g., failing checks, requested changes)
                   core.setOutput('should_merge', 'false');
                   return;
                }
-               # --- End Basic PR State Checks ---
+               // --- End Basic PR State Checks ---
 
 
-               # --- Upvote Check ---
-               # 1. Get reactions on the PR description (treated as an issue)
+               // --- Upvote Check ---
+               // 1. Get reactions on the PR description (treated as an issue)
                const { data: prIssue } = await github.rest.issues.get({
                  owner: context.repo.owner,
                  repo: context.repo.repo,
-                 issue_number: prNumber # PRs are also issues
+                 issue_number: prNumber // PRs are also issues
                });
                const reactionUpvotes = prIssue.reactions?.['+1'] || 0;
                console.log(`PR description reactions (+1): ${reactionUpvotes}`);
 
-               # 2. Get comments and check for upvote indicators
+               // 2. Get comments and check for upvote indicators
                const { data: comments } = await github.rest.issues.listComments({
                  owner: context.repo.owner,
                  repo: context.repo.repo,
@@ -584,18 +584,17 @@ jobs:
                });
 
                let commentUpvotes = 0;
-               const upvotePatterns = [/👍/, /:\+1:/, /\b\+1\b/]; # Regex for +1 word boundary
+               const upvotePatterns = [/👍/, /:\+1:/, /\b\+1\b/]; // Regex for +1 word boundary
                for (const comment of comments) {
-                 # Avoid counting bot comments if necessary
-                 # if (comment.user.type === 'Bot') continue;
+                 // Avoid counting bot comments if necessary
+                 // if (comment.user.type === 'Bot') continue;
                  for (const pattern of upvotePatterns) {
                     if (pattern.test(comment.body)) {
                        commentUpvotes++;
-                       break; # Count only one upvote per comment
+                       break; // Count only one upvote per comment
                     }
                  }
                }
-               console.log(`PR comment upvotes (👍, :+1:, +1): ${commentUpvotes}`);
 
                const totalUpvotes = reactionUpvotes + commentUpvotes;
                console.log(`Total PR upvotes: ${totalUpvotes}, Required: ${minPrUpvotes}`);
@@ -607,7 +606,7 @@ jobs:
                  console.log(`PR #${prNumber} does not meet the upvote threshold. Skipping merge.`);
                  core.setOutput('should_merge', 'false');
                }
-               # --- End Upvote Check ---
+               // --- End Upvote Check ---
 
             } catch (error) {
                console.error(`Error checking PR #${prNumber} status or upvotes: ${error.stack}`);
@@ -632,14 +631,14 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: prNumber,
-                merge_method: 'squash', # Or 'merge', 'rebase'
-                commit_title: `feat(ai): Fix issue #${issueNumber} (PR #${prNumber})`, # Customize commit title
-                commit_message: `Squash merged AI-generated fix after receiving ${minPrUpvotes} or more upvotes.\n\nCloses #${issueNumber}` # Ensure issue is closed by merge commit
+                merge_method: 'squash', // Or 'merge', 'rebase'
+                commit_title: `feat(ai): Fix issue #${issueNumber} (PR #${prNumber})`, // Customize commit title
+                commit_message: `Squash merged AI-generated fix after receiving ${minPrUpvotes} or more upvotes.\n\nCloses #${issueNumber}` // Ensure issue is closed by merge commit
               });
 
               console.log(`Successfully merged PR #${prNumber}. Result: ${mergeResult.message}`);
 
-              # Optional: Comment on the PR after merging
+              // Optional: Comment on the PR after merging
               await github.rest.issues.createComment({
                  owner: context.repo.owner,
                  repo: context.repo.repo,
@@ -647,7 +646,7 @@ jobs:
                  body: `🚀 This PR was automatically merged after meeting the upvote threshold (${minPrUpvotes}).`
               });
 
-              # Optional: Delete the head branch
+              // Optional: Delete the head branch
               const branchName = '${{ needs.process_issue.outputs.branch_name }}';
               console.log(`Attempting to delete branch: ${branchName}`);
               try {
@@ -663,7 +662,7 @@ jobs:
 
             } catch (error) {
                console.error(`Error merging PR #${prNumber}: ${error.stack}`);
-               # Add a comment to the PR indicating failure?
+               // Add a comment to the PR indicating failure?
                try {
                   await github.rest.issues.createComment({
                      owner: context.repo.owner,
@@ -672,7 +671,7 @@ jobs:
                      body: `❌ Automatic merge failed: ${error.message}`
                   });
                } catch (commentError) {
-                  # Ignore errors trying to comment on failure
+                  // Ignore errors trying to comment on failure
                }
                core.setFailed(`Failed to merge PR #${prNumber}: ${error.message}`);
             }
