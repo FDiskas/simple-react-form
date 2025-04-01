@@ -429,7 +429,7 @@ jobs:
               core.setOutput('pr_number', pullRequest.number.toString());
               core.setOutput('created_pr', 'true'); // Signal that PR was created
 
-              // Optional: Comment on the PR after merging
+              // Optional: Comment on the issue after creating the PR
               await github.rest.issues.createComment({
                  owner: context.repo.owner,
                  repo: context.repo.repo,
