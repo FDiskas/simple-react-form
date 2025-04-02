@@ -1,5 +1,5 @@
 # Workflow name
-name: AI Issue Handler V2
+name: AI Issue Handler V3 (Review Required)
 
 # Triggers for the workflow
 on:
@@ -13,13 +13,10 @@ on:
         description: 'Issue number to process manually'
         required: true
       min_issue_upvotes:
-        description: 'Minimum issue upvotes required'
+        description: 'Minimum issue upvotes required to trigger PR'
         required: false
         default: '1'
-      min_pr_upvotes:
-        description: 'Minimum PR upvotes required for auto-merge'
-        required: false
-        default: '1'
+      # Removed min_pr_upvotes as auto-merge is disabled for security
       ai_context:
         description: 'Additional context for the AI'
         required: false
@@ -32,7 +29,7 @@ on:
         required: false
         default: 'src/lib/useForm.ts'
       ai_reviewer:
-        description: 'GitHub username or team slug for AI review (e.g., github-copilot[bot] or org/copilot-team)'
+        description: 'GitHub username or team slug for AI review request (e.g., github-copilot[bot] or org/copilot-team)'
         required: false
         default: 'copilot' # Defaulting to 'copilot' team slug
       openai_model:
@@ -41,18 +38,23 @@ on:
         default: 'gpt-4' # Or 'gpt-3.5-turbo' for faster/cheaper generation
 
 # Permissions required by the workflow
+# WARNING: These grant significant write access. Ensure security best practices.
 permissions:
-  contents: write         # To checkout code, commit, push, create branches, merge PRs
-  issues: write           # To read issues, comment on issues, close issues
-  pull-requests: write    # To create PRs, comment on PRs, request reviewers, merge PRs
-  actions: read           # To read workflow inputs/variables
+  contents: write      # To checkout code, commit, push, create branches, create PRs
+  issues: write        # To read issues, comment on issues
+  pull-requests: write # To create PRs, comment on PRs, request reviewers
+  actions: read        # To read workflow inputs/variables
+
+# Concurrency control: Ensures only one instance runs per branch at a time.
+# Prevents race conditions if multiple issues trigger the workflow quickly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 # Environment variables available to all jobs
 env:
   # Minimum upvotes (+1 reactions) required on the ISSUE to trigger a PR
   MIN_ISSUE_UPVOTES: ${{ github.event.inputs.min_issue_upvotes || vars.DEFAULT_MIN_ISSUE_UPVOTES || '1' }}
-  # Minimum upvotes (+1 reactions/comments) required on the PR to trigger auto-merge
-  MIN_PR_UPVOTES: ${{ github.event.inputs.min_pr_upvotes || vars.DEFAULT_MIN_PR_UPVOTES || '1' }}
   # Context provided to the AI model
   AI_CONTEXT: "${{ github.event.inputs.ai_context || 'Default AI context: Please adhere to project conventions.' }}"
   # The file the AI should modify
@@ -61,42 +63,55 @@ env:
   AI_REVIEWER: ${{ github.event.inputs.ai_reviewer || 'copilot' }}
   # OpenAI Model
   OPENAI_MODEL: ${{ github.event.inputs.openai_model || 'gpt-4' }}
-  # Use a Personal Access Token (PAT) with necessary scopes for cross-workflow triggers or advanced operations if needed
-  # GITHUB_TOKEN has limitations in triggering other workflows.
-  ACTION_PAT: ${{ secrets.ACTION_PAT || secrets.PR_TOKEN || secrets.GITHUB_TOKEN }} # Fallback to GITHUB_TOKEN if PAT not set
+  # Use a Personal Access Token (PAT) with necessary scopes (repo, issue:write, pull-request:write).
+  # GITHUB_TOKEN has limitations (e.g., triggering other workflows, potentially bypassing branch protection if allowed).
+  # ACTION_PAT is recommended for reliability. Ensure it has MINIMUM required permissions.
+  ACTION_PAT: ${{ secrets.ACTION_PAT || secrets.GITHUB_TOKEN }} # Fallback to GITHUB_TOKEN if PAT not set, but functionality may be limited
 
 jobs:
-  # Job 1: Process the issue, generate AI fix, and create a PR
-  process_issue:
+  # Job: Process the issue, generate AI fix, and create a PR for REVIEW
+  process_issue_and_create_pr:
     runs-on: ubuntu-latest
-    # Outputs for use in subsequent jobs
     outputs:
       pr_number: ${{ steps.create_pr.outputs.pr_number }}
       branch_name: ${{ steps.create_branch.outputs.branch_name }}
       processed_issue_number: ${{ steps.check_issue.outputs.issue_number }}
-      should_run_merge_job: ${{ steps.create_pr.outputs.created_pr == 'true' }} # Signal if PR was created
+      # No longer outputting should_run_merge_job as auto-merge is removed
 
     steps:
       # Step 1: Checkout the repository code
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Fetch full history, which might be useful for AI context or merge conflict resolution
+          # Fetch full history (useful for AI context or merge conflict resolution)
+          # Set fetch-depth: 1 if full history isn't needed to speed up checkout.
           fetch-depth: 0
+          # Use PAT for checkout if you need to push later or access private submodules
+          # token: ${{ env.ACTION_PAT }} # Usually not needed just for checkout unless submodules require it
 
-      # Step 2: Setup Node.js (only if your scripts or AI tools require it - remove if not needed)
-      # - name: Setup Node.js
-      #   uses: actions/setup-node@v4
-      #   with:
-      #     node-version: 18 # Or the version required by your tools
+      # Step 2: Get Default Branch Name (needed early for pulling latest changes)
+      - name: Get Default Branch
+        id: default_branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ env.ACTION_PAT }} # Use PAT for consistency, GITHUB_TOKEN likely sufficient
+          script: |
+            const { data: repo } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            console.log(`Repository default branch: ${repo.default_branch}`);
+            core.setOutput('name', repo.default_branch);
 
       # Step 3: Check Issue Details and Upvotes
       - name: Check Issue Details & Upvotes
         id: check_issue
         uses: actions/github-script@v7
         with:
-          github-token: ${{ env.ACTION_PAT }} # Use PAT for potentially broader API access
+          github-token: ${{ env.ACTION_PAT }} # Use PAT for reliable API access
+          result-encoding: string # Ensure outputs are strings
           script: |
+            const fs = require('fs');
             const minUpvotes = parseInt(process.env.MIN_ISSUE_UPVOTES);
             let issueNumber;
 
@@ -104,18 +119,19 @@ jobs:
             if (context.eventName === 'workflow_dispatch') {
               issueNumber = parseInt(context.payload.inputs.issue_number);
               if (isNaN(issueNumber)) {
-                 core.setFailed(`Invalid issue number provided via workflow_dispatch: ${context.payload.inputs.issue_number}`);
-                 return;
+                  core.setFailed(`Invalid issue number provided via workflow_dispatch: ${context.payload.inputs.issue_number}`);
+                  return;
               }
               console.log(`Processing issue #${issueNumber} via workflow_dispatch.`);
             } else if (context.payload.issue) {
               issueNumber = context.payload.issue.number;
               console.log(`Processing issue #${issueNumber} triggered by issue event '${context.payload.action}'.`);
-              // If triggered by 'labeled', check if the label is 'ai-fix' (or your desired label)
+              // If triggered by 'labeled', check if the label is 'ai-fix'
               if (context.payload.action === 'labeled' && context.payload.label.name !== 'ai-fix') {
-                 console.log(`Issue #${issueNumber} was labeled with '${context.payload.label.name}', not 'ai-fix'. Skipping.`);
-                 core.setOutput('should_process', 'false');
-                 return;
+                  console.log(`Issue #${issueNumber} was labeled with '${context.payload.label.name}', not 'ai-fix'. Skipping.`);
+                  // Set output via environment file for conditional steps
+                  fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_process=false\n`);
+                  return;
               }
             } else {
               console.log('Workflow triggered by unexpected event or payload structure. Cannot determine issue number.');
@@ -123,7 +139,8 @@ jobs:
               return;
             }
 
-            core.setOutput('issue_number', issueNumber.toString());
+            // Set issue number output early for potential use even if skipped later
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `issue_number=${issueNumber}\n`);
 
             // Fetch issue details
             try {
@@ -134,7 +151,6 @@ jobs:
               });
 
               console.log(`Issue Title: ${issue.title}`);
-              // console.log(`Issue Body:\n${issue.body}`); // Log body if needed for debugging, can be long
               console.log(`Issue State: ${issue.state}`);
               console.log(`Issue Reactions (+1): ${issue.reactions?.['+1'] || 0}`);
 
@@ -142,7 +158,7 @@ jobs:
               // 1. Check if the issue is open
               if (issue.state !== 'open') {
                 console.log(`Issue #${issueNumber} is not open (state: ${issue.state}). Skipping.`);
-                core.setOutput('should_process', 'false');
+                fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_process=false\n`);
                 return;
               }
 
@@ -150,54 +166,52 @@ jobs:
               const upvotes = issue.reactions?.['+1'] || 0;
               if (upvotes < minUpvotes) {
                 console.log(`Issue #${issueNumber} has ${upvotes} upvotes, but requires ${minUpvotes}. Skipping.`);
-                core.setOutput('should_process', 'false');
+                fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_process=false\n`);
                 return;
               }
               // --- End Gate Checks ---
 
               console.log(`Issue #${issueNumber} meets criteria (${upvotes}/${minUpvotes} upvotes, state: open). Proceeding.`);
-              core.setOutput('should_process', 'true');
-              core.setOutput('issue_title', issue.title);
-              // Pass the full body to the next step via environment variable if possible,
-              // otherwise use outputs (limited length). Using env var is better here.
-              // Escape newlines for multiline env var
-              const issueBody = issue.body || '';
-              const escapedBody = issueBody.replace(/%/g, '%25').replace(/\n/g, '%0A').replace(/\r/g, '%0D');
-              console.log(`::set-output name=issue_body::${escapedBody}`);
-              // Also set title as output for commit message use later
-              const escapedTitle = issue.title.replace(/%/g, '%25').replace(/\n/g, '%0A').replace(/\r/g, '%0D');
-               console.log(`::set-output name=issue_title::${escapedTitle}`);
-
+              // Use GITHUB_OUTPUT for multiline content
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_process=true\n`);
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `issue_title<<EOF\n${issue.title || ''}\nEOF\n`);
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `issue_body<<EOF\n${issue.body || ''}\nEOF\n`);
 
             } catch (error) {
               console.error(`Error fetching or checking issue #${issueNumber}: ${error.message}`);
               console.error(error.stack);
               core.setFailed(`Failed to process issue #${issueNumber}: ${error.message}`);
-              core.setOutput('should_process', 'false');
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_process=false\n`);
             }
+
       # Step 4: Create a new branch for the fix
       - name: Create Fix Branch
         id: create_branch
         if: steps.check_issue.outputs.should_process == 'true'
         run: |
           git config --global user.name "GitHub Actions AI Bot"
-          git config --global user.email "actions@github.com"
+          git config --global user.email "actions-ai@github.com" # Use a more specific email
 
           ISSUE_NUMBER="${{ steps.check_issue.outputs.issue_number }}"
+          ISSUE_TITLE="${{ steps.check_issue.outputs.issue_title }}" # Read directly from output
+          DEFAULT_BRANCH="${{ steps.default_branch.outputs.name }}"
+
           # Sanitize title slightly for branch name (remove special chars, limit length)
-          # Decode the escaped title from the previous step output
-          DECODED_TITLE=$(echo "${{ steps.check_issue.outputs.issue_title }}" | python -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read()))")
-          SANITIZED_TITLE=$(echo "$DECODED_TITLE" | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c 1-50)
+          # Use printf to avoid issues with leading hyphens in title
+          SANITIZED_TITLE=$(printf "%s" "$ISSUE_TITLE" | sed 's/[^a-zA-Z0-9-]/-/g' | cut -c 1-50)
           TIMESTAMP=$(date +%s)
           BRANCH_NAME="ai-fix/issue-${ISSUE_NUMBER}-${SANITIZED_TITLE}-${TIMESTAMP}"
+          BRANCH_NAME=$(echo $BRANCH_NAME | tr '[:upper:]' '[:lower:]') # Ensure lowercase branch name
 
           # Ensure base branch is up-to-date before branching
-          # DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
-          # git checkout $DEFAULT_BRANCH
-          # git pull origin $DEFAULT_BRANCH
+          echo "Checking out and pulling latest changes from default branch: $DEFAULT_BRANCH"
+          git checkout $DEFAULT_BRANCH
+          # Use PAT in git pull if needed for private repos/auth, but typically not required if checkout worked
+          git pull origin $DEFAULT_BRANCH
 
+          echo "Creating branch: $BRANCH_NAME"
           git checkout -b $BRANCH_NAME
-          echo "Created branch: $BRANCH_NAME"
+
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
 
       # ====================================================================
@@ -210,29 +224,29 @@ jobs:
           # Provide necessary data to the Python script via environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TARGET_FILE: ${{ env.TARGET_FILE }}
-          ISSUE_TITLE: ${{ steps.check_issue.outputs.issue_title }} # Decoded in Python
-          ISSUE_BODY: ${{ steps.check_issue.outputs.issue_body }}   # Decoded in Python
+          # Pass raw issue title/body via env vars for the script
+          ISSUE_TITLE: ${{ steps.check_issue.outputs.issue_title }}
+          ISSUE_BODY: ${{ steps.check_issue.outputs.issue_body }}
           AI_CONTEXT: ${{ env.AI_CONTEXT }}
           OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
         run: |
-          pip install openai==1.* # Install the latest V1 openai library
+          pip install openai~=1.0 # Install openai v1.x library
 
           # Use python3 explicitly with proper heredoc syntax
           python3 << 'EOF'
           import os
           import sys
           import re
-          import urllib.parse
           from openai import OpenAI, RateLimitError, APIError
 
           # --- Configuration ---
           target_file_path = os.getenv('TARGET_FILE')
           openai_api_key = os.getenv('OPENAI_API_KEY')
-          # Decode potentially URL-encoded env vars from github-script output
-          issue_title = urllib.parse.unquote(os.getenv('ISSUE_TITLE', ''))
-          issue_body = urllib.parse.unquote(os.getenv('ISSUE_BODY', ''))
+          # Read raw title/body from environment variables (no decoding needed now)
+          issue_title = os.getenv('ISSUE_TITLE', '')
+          issue_body = os.getenv('ISSUE_BODY', '')
           ai_context = os.getenv('AI_CONTEXT', '')
-          model_name = os.getenv('OPENAI_MODEL', 'gpt-4') # Default to gpt-4
+          model_name = os.getenv('OPENAI_MODEL', 'gpt-4')
 
           # Basic validation
           if not target_file_path:
@@ -242,9 +256,8 @@ jobs:
               print("::error::OPENAI_API_KEY secret not set.")
               sys.exit(1)
           if not issue_body:
-              print("::warning::Issue body is empty.")
-              # Decide if you want to fail or proceed with just title/context
-              # sys.exit(1)
+              print("::warning::Issue body is empty. AI results might be poor.")
+              # Consider failing if body is required: sys.exit(1)
 
           print(f"Target file: {target_file_path}")
           print(f"Using OpenAI model: {model_name}")
@@ -271,7 +284,7 @@ jobs:
           3.  Adhere to the additional context: {ai_context}
           4.  IMPORTANT: Output ONLY the complete, modified code for the file '{target_file_path}'.
           5.  Do NOT include any explanations, apologies, introductions, or markdown formatting (like ```typescript ... ```) around the code.
-          6.  If the request is ambiguous or cannot be fulfilled, respond with the original code unmodified.
+          6.  If the request is ambiguous, cannot be fulfilled securely, or requires changes outside '{target_file_path}', respond with the original code unmodified.
           7.  Ensure the generated code is syntactically correct and maintains existing style conventions.
           """
 
@@ -302,7 +315,7 @@ jobs:
                       {"role": "user", "content": user_prompt},
                   ],
                   temperature=0.2, # Lower temperature for more deterministic code generation
-                  # max_tokens=... # Optional: set a limit if needed
+                  # max_tokens=... # Optional: set a limit based on file size/complexity
               )
 
               if response.choices:
@@ -317,41 +330,63 @@ jobs:
 
           except RateLimitError:
               print("::error::OpenAI API rate limit exceeded. Please check your plan and usage.")
-              sys.exit(1)
+              sys.exit(1) # Fail the step on rate limit
           except APIError as e:
               print(f"::error::OpenAI API error: {e}")
-              sys.exit(1)
+              sys.exit(1) # Fail the step on API error
           except Exception as e:
               print(f"::error::An unexpected error occurred during the OpenAI API call: {e}")
-              sys.exit(1)
+              sys.exit(1) # Fail the step on other errors
 
           # --- Process Response and Write File ---
+          github_output_path = os.getenv('GITHUB_OUTPUT')
           if modified_content and modified_content != original_content:
               print(f"AI generated new content. Writing to {target_file_path}")
               try:
                   with open(target_file_path, 'w', encoding='utf-8') as f:
                       f.write(modified_content)
-                  # Set outputs for subsequent steps
-                  print("::set-output name=modified::true")
-                  print(f"::set-output name=modified_file::{target_file_path}")
+                  # Set outputs for subsequent steps using GITHUB_OUTPUT
+                  with open(github_output_path, 'a') as f:
+                      f.write("modified=true\n")
+                      f.write(f"modified_file={target_file_path}\n")
                   print("Successfully applied AI modifications.")
               except Exception as e:
                   print(f"::error::Failed to write modified content to '{target_file_path}': {e}")
-                  # Attempt to restore original content on write failure? Maybe not, state is uncertain.
-                  print("::set-output name=modified::false") # Mark as not modified if write fails
-                  sys.exit(1)
+                  with open(github_output_path, 'a') as f:
+                      f.write("modified=false\n") # Mark as not modified if write fails
+                  sys.exit(1) # Fail the step if write fails
           elif modified_content == original_content:
               print("AI returned the original content. No changes applied.")
-              print("::set-output name=modified::false")
+              with open(github_output_path, 'a') as f:
+                  f.write("modified=false\n")
           else:
-              print("::warning::AI did not return valid content. No changes applied.")
-              print("::set-output name=modified::false")
+              print("::warning::AI did not return valid content or failed. No changes applied.")
+              with open(github_output_path, 'a') as f:
+                  f.write("modified=false\n")
+
           EOF
+
+      # ====================================================================
+      # PLACEHOLDER: Add Linting / Static Analysis / Security Scan Step Here
+      # ====================================================================
+      # - name: Lint and Scan Modified File
+      #   if: steps.apply_ai_fix.outputs.modified == 'true'
+      #   run: |
+      #     MODIFIED_FILE="${{ steps.apply_ai_fix.outputs.modified_file }}"
+      #     echo "Linting $MODIFIED_FILE..."
+      #     # Add your linting command (e.g., npx eslint $MODIFIED_FILE --fix)
+      #     # Add your formatting command (e.g., npx prettier --write $MODIFIED_FILE)
+      #     # Add your security scan command (e.g., semgrep scan --config auto $MODIFIED_FILE)
+      #     # If linting/scanning fails, exit with non-zero code to fail the workflow
+      #     # Example: npx eslint $MODIFIED_FILE || exit 1
+      #     # Example: semgrep scan --config auto --error $MODIFIED_FILE || exit 1
+      #     # Re-add the file if linting/formatting modified it
+      #     # git add $MODIFIED_FILE
 
       # Step 6: Commit and Push Changes
       - name: Commit and Push Changes
-        id: commit_and_push  # Add ID to this step for later reference
-        # Use the output from the AI step's ID
+        id: commit_and_push
+        # Run only if AI modified the file (and optional lint/scan step passed)
         if: steps.apply_ai_fix.outputs.modified == 'true'
         run: |
           MODIFIED_FILE="${{ steps.apply_ai_fix.outputs.modified_file }}"
@@ -359,97 +394,110 @@ jobs:
           git add "$MODIFIED_FILE"
 
           ISSUE_NUMBER="${{ steps.check_issue.outputs.issue_number }}"
-          # Decode title again for the commit message
-          DECODED_TITLE=$(echo "${{ steps.check_issue.outputs.issue_title }}" | python -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read()))")
-          COMMIT_MSG="feat(ai): Apply AI fix for issue #${ISSUE_NUMBER} - ${DECODED_TITLE}"
+          # Use the raw title directly in the commit message
+          ISSUE_TITLE="${{ steps.check_issue.outputs.issue_title }}"
+          # Construct commit message - ensure it handles potential newlines in title if necessary
+          COMMIT_MSG=$(printf "feat(ai): Apply AI fix for issue #%s\n\n%s" "$ISSUE_NUMBER" "$ISSUE_TITLE")
 
-          echo "Committing changes with message: $COMMIT_MSG"
+          echo "Committing changes..."
           # Use 'git commit' exit code to check if commit was successful
           if git commit -m "$COMMIT_MSG"; then
-             echo "Changes committed."
-             git push -u origin ${{ steps.create_branch.outputs.branch_name }}
-             echo "Changes pushed to branch ${{ steps.create_branch.outputs.branch_name }}"
-             echo "committed=true" >> $GITHUB_OUTPUT
+            echo "Changes committed."
+            # Use PAT for push if required by branch protection or repo settings
+            # git push -u origin ${{ steps.create_branch.outputs.branch_name }} --porcelain --progress
+            git push -u origin ${{ steps.create_branch.outputs.branch_name }}
+            echo "Changes pushed to branch ${{ steps.create_branch.outputs.branch_name }}"
+            echo "committed=true" >> $GITHUB_OUTPUT
           else
-             echo "Commit failed - likely no changes detected after 'git add'."
-             echo "committed=false" >> $GITHUB_OUTPUT
+            echo "Commit failed - likely no changes detected after 'git add'."
+            echo "committed=false" >> $GITHUB_OUTPUT
+            # Optionally fail the workflow if commit fails unexpectedly
+            # exit 1
           fi
 
-      # Step 7: Get Default Branch Name
-      - name: Get Default Branch
-        id: default_branch
-        # Run only if changes were committed
-        if: steps.commit_and_push.outputs.committed == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ env.ACTION_PAT }}
-          script: |
-            const { data: repo } = await github.rest.repos.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-            console.log(`Repository default branch: ${repo.default_branch}`);
-            core.setOutput('default_branch', repo.default_branch);
-
-      # Step 8: Create Pull Request
+      # Step 7: Create Pull Request
       - name: Create Pull Request
         id: create_pr
-        # Run only if changes were committed
+        # Run only if changes were successfully committed and pushed
         if: steps.commit_and_push.outputs.committed == 'true'
         uses: actions/github-script@v7
+        env:
+            # Pass data needed by the script via environment
+            BRANCH_NAME: ${{ steps.create_branch.outputs.branch_name }}
+            ISSUE_NUMBER: ${{ steps.check_issue.outputs.issue_number }}
+            DEFAULT_BRANCH: ${{ steps.default_branch.outputs.name }}
+            ISSUE_TITLE: ${{ steps.check_issue.outputs.issue_title }}
+            ISSUE_BODY: ${{ steps.check_issue.outputs.issue_body }}
+            AI_REVIEWER: ${{ env.AI_REVIEWER }}
         with:
           github-token: ${{ env.ACTION_PAT }} # Use PAT to ensure permissions and trigger potential other workflows
           script: |
-            const branchName = '${{ steps.create_branch.outputs.branch_name }}';
-            const issueNumber = ${{ steps.check_issue.outputs.issue_number }};
-            const defaultBranch = '${{ steps.default_branch.outputs.default_branch }}';
-            // Fix: use JSON.stringify to properly escape the values before passing to JavaScript
-            const issueTitle = decodeURIComponent(${{ toJSON(steps.check_issue.outputs.issue_title) }}.replace(/\+/g, ' '));
-            const issueBody = decodeURIComponent(${{ toJSON(steps.check_issue.outputs.issue_body) }}.replace(/\+/g, ' '));
+            // Retrieve env vars within the script
+            const branchName = process.env.BRANCH_NAME;
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+            const defaultBranch = process.env.DEFAULT_BRANCH;
+            const issueTitle = process.env.ISSUE_TITLE;
+            const issueBody = process.env.ISSUE_BODY;
             const aiReviewer = process.env.AI_REVIEWER;
 
             console.log(`Creating PR for branch: ${branchName} targeting ${defaultBranch}`);
             console.log(`Related Issue: #${issueNumber}`);
 
-            // Escape backticks for the PR body markdown code block
-            const escapedIssueBody = issueBody.replace(/`/g, '\\`');
+            // Prepare PR body
+            const prBody = `**⚠️ AI-Generated Code Suggestion ⚠️**
+
+            This PR provides an AI-generated suggestion to address issue #${issueNumber}.
+
+            **Requires careful human review before merging.**
+
+            **Original Issue Request:**
+            \`\`\`
+            ${issueBody.replace(/`/g, '\\`')}
+            \`\`\`
+
+            Closes #${issueNumber}`; // Automatically closes issue when PR merges
 
             try {
               const { data: pullRequest } = await github.rest.pulls.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: `feat(ai): Fix issue #${issueNumber} - ${issueTitle}`,
-                body: `This PR provides an AI-generated solution for issue #${issueNumber}.\n\n**Original Issue Request:**\n\n\`\`\`\n${escapedIssueBody}\n\`\`\`\n\nCloses #${issueNumber}`, // Automatically closes issue when PR merges
+                body: prBody,
                 head: branchName,
                 base: defaultBranch,
-                draft: false // Set to true if you want draft PRs first
+                draft: true // Create as draft PR to encourage review
               });
 
-              console.log(`Created PR #${pullRequest.number}: ${pullRequest.html_url}`);
+              console.log(`Created Draft PR #${pullRequest.number}: ${pullRequest.html_url}`);
               core.setOutput('pr_number', pullRequest.number.toString());
               core.setOutput('created_pr', 'true'); // Signal that PR was created
 
-              // Optional: Comment on the issue after creating the PR
-              await github.rest.issues.createComment({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 issue_number: issueNumber,
-                 body: `✅ AI has created PR #${pullRequest.number} to address this issue: ${pullRequest.html_url}`
-              });
-              console.log(`Commented on issue #${issueNumber}`);
+              // Comment on the issue after creating the PR
+              try {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    body: `✅ AI has created Draft PR #${pullRequest.number} as a potential solution for this issue. Please review carefully: ${pullRequest.html_url}`
+                  });
+                  console.log(`Commented on issue #${issueNumber}`);
+              } catch (commentError) {
+                  console.warn(`⚠️ Failed to comment on issue #${issueNumber}: ${commentError.message}`);
+              }
+
 
               // Request review
               if (aiReviewer) {
                 try {
-                  // Check if reviewer is likely a team slug (contains '/')
                   let reviewers = [];
                   let team_reviewers = [];
+                  // Check if reviewer is likely a team slug (contains '/')
                   if (aiReviewer.includes('/')) {
-                     team_reviewers.push(aiReviewer.split('/').pop()); // Get team slug part
-                     console.log(`Requesting review from team: ${team_reviewers[0]}`);
+                      team_reviewers.push(aiReviewer.split('/').pop()); // Get team slug part
+                      console.log(`Requesting review from team: ${team_reviewers[0]}`);
                   } else {
-                     reviewers.push(aiReviewer);
-                     console.log(`Requesting review from user: ${reviewers[0]}`);
+                      reviewers.push(aiReviewer);
+                      console.log(`Requesting review from user: ${reviewers[0]}`);
                   }
 
                   await github.rest.pulls.requestReviewers({
@@ -464,214 +512,32 @@ jobs:
                   console.warn(`⚠️ Failed to add reviewer '${aiReviewer}': ${reviewError.message}. This might require specific permissions or the user/team may not exist.`);
                 }
               } else {
-                 console.log("No AI_REVIEWER specified, skipping review request.");
+                  console.log("No AI_REVIEWER specified, skipping review request.");
               }
 
             } catch (error) {
-               console.error(`Error creating PR or interacting with issue/reviewers: ${error.stack}`);
-               core.setFailed(`Failed to create PR or perform post-creation steps: ${error.message}`);
-               core.setOutput('created_pr', 'false');
+                console.error(`Error creating PR or interacting with issue/reviewers: ${error.stack}`);
+                core.setFailed(`Failed to create PR or perform post-creation steps: ${error.message}`);
+                core.setOutput('created_pr', 'false');
             }
-      - name: Skip PR creation fallback
+
+      # Step 8: Handle cases where PR wasn't created
+      - name: Notify Skipped PR Creation
         if: steps.check_issue.outputs.should_process != 'true' || steps.apply_ai_fix.outputs.modified != 'true' || steps.commit_and_push.outputs.committed != 'true'
         run: |
-          echo "Skipping PR creation because preconditions were not met (issue not processed, AI made no changes, or commit failed)."
-          # Ensure output is set even in skipped cases for the 'needs' condition later
-          echo "created_pr=false" >> $GITHUB_OUTPUT
+          echo "Skipping PR creation because preconditions were not met (issue skipped, AI made no changes, or commit failed)."
+          # No outputs needed from this step, the create_pr step handles its own failure/skip output setting
 
-
-  # Job 2: Automatically merge the PR if it gets enough upvotes
-  auto_merge_pr:
-    runs-on: ubuntu-latest
-    # Needs the process_issue job to complete successfully AND have created a PR
-    needs: process_issue
-    # Only run if the previous job indicated a PR was successfully created
-    if: needs.process_issue.outputs.should_run_merge_job == 'true'
-
-    steps:
-      # Step 1: Checkout code (might not be strictly necessary but good practice)
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Step 2: Check PR Status and Upvotes
-      - name: Check PR Status & Upvotes
-        id: check_pr
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ env.ACTION_PAT }}
-          script: |
-            const prNumber = parseInt('${{ needs.process_issue.outputs.pr_number }}');
-            const minPrUpvotes = parseInt(process.env.MIN_PR_UPVOTES);
-
-            // Add a delay before checking PR status to allow GitHub API to update (e.g., mergeable state)
-            await new Promise(resolve => setTimeout(resolve, 15000)); // 15 seconds delay
-
-            if (isNaN(prNumber)) {
-               console.log("PR number is not valid from previous job. Skipping merge check.");
-               core.setOutput('should_merge', 'false');
-               return;
-            }
-
-            console.log(`Checking status and upvotes for PR #${prNumber}`);
-
-            try {
-               // Get PR details - Retry logic might be needed if mergeable state is initially null
-               let pr;
-               let attempts = 0;
-               const maxAttempts = 3;
-               while (attempts < maxAttempts) {
-                  attempts++;
-                  const { data: prData } = await github.rest.pulls.get({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: prNumber,
-                  });
-                  pr = prData;
-
-                  // Check mergeable state specifically
-                  if (pr.mergeable === null && attempts < maxAttempts) {
-                      console.log(`Mergeable state is null (attempt ${attempts}/${maxAttempts}). Retrying in 10 seconds...`);
-                      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
-                      continue; // Retry fetching PR data
-                  }
-                  // If mergeable is not null or max attempts reached, break loop
-                  break;
-               }
-
-
-               // --- Gate Checks ---
-               // 1. Check if PR is still open and mergeable
-               if (pr.state !== 'open') {
-                 console.log(`PR #${prNumber} is not open (state: ${pr.state}). Skipping merge.`);
-                 core.setOutput('should_merge', 'false');
-                 return;
-               }
-               if (pr.merged) {
-                 console.log(`PR #${prNumber} is already merged. Skipping.`);
-                 core.setOutput('should_merge', 'false');
-                 return;
-               }
-               // Check mergeable state after potential retries
-               if (pr.mergeable === null) {
-                   console.log(`PR #${prNumber} mergeable state is still null after ${maxAttempts} attempts. Skipping merge.`);
-                   core.setOutput('should_merge', 'false');
-                   return;
-               }
-               if (pr.mergeable_state === 'blocked' || pr.mergeable_state === 'dirty' || !pr.mergeable) {
-                  console.log(`PR #${prNumber} is not mergeable (state: ${pr.mergeable_state}, mergeable: ${pr.mergeable}). Skipping merge.`);
-                  // You could add comments here explaining why it's blocked (e.g., failing checks, requested changes)
-                  core.setOutput('should_merge', 'false');
-                  return;
-               }
-               // --- End Basic PR State Checks ---
-
-
-               // --- Upvote Check ---
-               // 1. Get reactions on the PR description (treated as an issue)
-               const { data: prIssue } = await github.rest.issues.get({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 issue_number: prNumber // PRs are also issues
-               });
-               const reactionUpvotes = prIssue.reactions?.['+1'] || 0;
-               console.log(`PR description reactions (+1): ${reactionUpvotes}`);
-
-               // 2. Get comments and check for upvote indicators
-               const { data: comments } = await github.rest.issues.listComments({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 issue_number: prNumber
-               });
-
-               let commentUpvotes = 0;
-               const upvotePatterns = [/👍/, /:\+1:/, /\b\+1\b/]; // Regex for +1 word boundary
-               for (const comment of comments) {
-                 // Avoid counting bot comments if necessary
-                 // if (comment.user.type === 'Bot') continue;
-                 for (const pattern of upvotePatterns) {
-                    if (pattern.test(comment.body)) {
-                       commentUpvotes++;
-                       break; // Count only one upvote per comment
-                    }
-                 }
-               }
-
-               const totalUpvotes = reactionUpvotes + commentUpvotes;
-               console.log(`Total PR upvotes: ${totalUpvotes}, Required: ${minPrUpvotes}`);
-
-               if (totalUpvotes >= minPrUpvotes) {
-                 console.log(`PR #${prNumber} meets the upvote threshold. Proceeding to merge.`);
-                 core.setOutput('should_merge', 'true');
-               } else {
-                 console.log(`PR #${prNumber} does not meet the upvote threshold. Skipping merge.`);
-                 core.setOutput('should_merge', 'false');
-               }
-               // --- End Upvote Check ---
-
-            } catch (error) {
-               console.error(`Error checking PR #${prNumber} status or upvotes: ${error.stack}`);
-               core.warning(`Could not verify PR #${prNumber} for merging: ${error.message}`);
-               core.setOutput('should_merge', 'false');
-            }
-
-      # Step 3: Merge the Pull Request
-      - name: Merge Pull Request
-        if: steps.check_pr.outputs.should_merge == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ env.ACTION_PAT }} # PAT likely needed for merge permissions / bypassing branch protection
-          script: |
-            const prNumber = parseInt('${{ needs.process_issue.outputs.pr_number }}');
-            const minPrUpvotes = parseInt(process.env.MIN_PR_UPVOTES);
-            const issueNumber = parseInt('${{ needs.process_issue.outputs.processed_issue_number }}');
-
-            console.log(`Attempting to merge PR #${prNumber}`);
-            try {
-              const { data: mergeResult } = await github.rest.pulls.merge({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-                merge_method: 'squash', // Or 'merge', 'rebase'
-                commit_title: `feat(ai): Fix issue #${issueNumber} (PR #${prNumber})`, // Customize commit title
-                commit_message: `Squash merged AI-generated fix after receiving ${minPrUpvotes} or more upvotes.\n\nCloses #${issueNumber}` // Ensure issue is closed by merge commit
-              });
-
-              console.log(`Successfully merged PR #${prNumber}. Result: ${mergeResult.message}`);
-
-              // Optional: Comment on the PR after merging
-              await github.rest.issues.createComment({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 issue_number: prNumber,
-                 body: `🚀 This PR was automatically merged after meeting the upvote threshold (${minPrUpvotes}).`
-              });
-
-              // Optional: Delete the head branch
-              const branchName = '${{ needs.process_issue.outputs.branch_name }}';
-              console.log(`Attempting to delete branch: ${branchName}`);
-              try {
-                 await github.rest.git.deleteRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `heads/${branchName}`
-                 });
-                 console.log(`Successfully deleted branch ${branchName}`);
-              } catch (deleteError) {
-                 console.warn(`⚠️ Failed to delete branch ${branchName}: ${deleteError.message}`);
-              }
-
-            } catch (error) {
-               console.error(`Error merging PR #${prNumber}: ${error.stack}`);
-               // Add a comment to the PR indicating failure?
-               try {
-                  await github.rest.issues.createComment({
-                     owner: context.repo.owner,
-                     repo: context.repo.repo,
-                     issue_number: prNumber,
-                     body: `❌ Automatic merge failed: ${error.message}`
-                  });
-               } catch (commentError) {
-                  // Ignore errors trying to comment on failure
-               }
-               core.setFailed(`Failed to merge PR #${prNumber}: ${error.message}`);
-            }
+# ====================================================================
+# Auto-Merge Job Removed
+# ====================================================================
+# The auto_merge_pr job has been removed due to the significant security risks
+# associated with automatically merging AI-generated code without human review.
+#
+# Recommendations:
+# 1. ALWAYS manually review AI-generated PRs carefully.
+# 2. Use branch protection rules to enforce reviews.
+# 3. If you need auto-merging based on approvals/checks (AFTER human review),
+#    consider dedicated auto-merge Actions like 'pascalgn/automerge-action' or
+#    GitHub's built-in auto-merge features, configured securely.
+# ====================================================================
