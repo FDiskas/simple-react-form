@@ -326,11 +326,7 @@ export function useForm<TValues>({
         e.preventDefault();
         debugFormValues('Before Submit');
 
-        let isValid = true;
-        if (validateOn === 'onSubmit') {
-          isValid = await validate();
-        }
-
+        const isValid = await validate();
         if (isValid) {
           const submissionValues = getCurrentValues();
           debugFormValues('Submit Values');
