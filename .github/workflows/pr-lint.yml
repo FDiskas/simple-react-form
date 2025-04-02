@@ -36,3 +36,17 @@ jobs:
               repo,
               body: '❌ Linting failed! Please fix the linting errors before this PR can be merged.'
             });
+
+      - name: Add preview deployment comment if linting passed
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { issue: { number: issue_number }, repo: { owner, repo } } = context;
+            github.rest.issues.createComment({
+              issue_number,
+              owner,
+              repo,
+              body: `✅ PR preview is deployed to https://${issue_number}.useform.coders.lt`
+            });
