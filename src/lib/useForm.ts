@@ -13,6 +13,7 @@ export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
   validator?: (values: T) => Partial<Record<keyof T, string>> | Promise<Partial<Record<keyof T, string>>>;
   controlled?: boolean;
   debug?: boolean;
+  validateOn?: 'onChange' | 'onBlur' | 'onSubmit';
 }
 
 export interface UseFormReturn<T> {
@@ -43,11 +44,13 @@ export function useForm<TValues>({
   validator,
   controlled = false,
   debug = false,
+  validateOn = 'onSubmit',
 }: {
   defaultValues?: Partial<TValues>;
   validator?: (values: TValues) => Partial<Record<keyof TValues, string>>;
   controlled?: boolean;
   debug?: boolean;
+  validateOn?: 'onChange' | 'onBlur' | 'onSubmit';
 }): UseFormReturn<TValues> {
   type InferredT = TValues;
 
@@ -136,8 +139,11 @@ export function useForm<TValues>({
 
       setIsDirty(true);
       debugFormValues(`After Update: ${String(name)}`);
+      if (validateOn === 'onChange') {
+        validate();
+      }
     },
-    [controlled, debugFormValues],
+    [controlled, debugFormValues, validate, validateOn],
   );
 
   const handleInputChange = React.useCallback(
@@ -242,14 +248,16 @@ export function useForm<TValues>({
         onBlur: () => {
           setTouched((prev) => ({ ...prev, [name]: true }));
           modifiedFieldsRef.current.add(name);
-          validate();
+          if (validateOn === 'onBlur') {
+            validate();
+          }
         },
         ref: (element: FormInputElement | null) => setupInputElement(element, name, currentValue),
       };
 
       return props;
     },
-    [getCurrentValues, handleInputChange, setupInputElement, validate],
+    [getCurrentValues, handleInputChange, setupInputElement, validate, validateOn],
   );
 
   const setValue = React.useCallback(
@@ -319,7 +327,6 @@ export function useForm<TValues>({
         debugFormValues('Before Submit');
 
         const isValid = await validate();
-
         if (isValid) {
           const submissionValues = getCurrentValues();
           debugFormValues('Submit Values');
@@ -327,7 +334,7 @@ export function useForm<TValues>({
         }
       };
     },
-    [getCurrentValues, validate, debugFormValues],
+    [getCurrentValues, validate, debugFormValues, validateOn],
   );
 
   return {
