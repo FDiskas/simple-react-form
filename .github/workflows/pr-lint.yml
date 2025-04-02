@@ -1,52 +1,95 @@
-name: PR Lint
+# Workflow name reflects both linting and notification aspects
+name: PR Lint & Notify
 
 on:
   pull_request:
     branches: [ '**' ]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Explicitly define permissions required by the workflow
+permissions:
+  contents: read        # Needed by actions/checkout@v4
+  pull-requests: write # Needed by actions/github-script@v7 to post comments
+
+# Concurrency control: Cancel previous runs for the same PR on new commits
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        # Use the latest major version of checkout
+        uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
+          # Using 'latest' is convenient but consider pinning to a specific version
+          # (e.g., '1.0.25') in production for maximum stability.
           bun-version: latest
 
+      # Cache Bun's global dependency cache
+      - name: Cache Bun dependencies
+        # Use the latest major version of cache
+        uses: actions/cache@v4
+        with:
+          # The path to Bun's cache directory
+          path: ~/.bun/install/cache
+          # Cache key invalidates if bun.lockb changes or the OS changes
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          # Fallback restore key if exact match isn't found (e.g., only OS matters)
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - name: Install dependencies
+        # Will be faster if cache is hit
         run: bun install
 
       - name: Run ESLint
+        # This step will fail the job if 'bun run lint' exits with a non-zero code
         run: bun run lint
 
       - name: Add linting status comment if failed
+        # Only runs if the 'Run ESLint' step failed
         if: failure()
-        uses: actions/github-script@v6
+        # Use the latest major version of github-script
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { issue: { number: issue_number }, repo: { owner, repo } } = context;
-            github.rest.issues.createComment({
-              issue_number,
-              owner,
-              repo,
-              body: '❌ Linting failed! Please fix the linting errors before this PR can be merged.'
-            });
+            const prNumber = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+            const body = '❌ Linting failed! Please fix the linting errors before this PR can be merged.';
+            console.log(`Attempting to comment on PR #${prNumber}: ${body}`);
+            try {
+              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+            } catch (error) {
+              console.error(`Error creating comment on PR #${prNumber}: ${error.message}`);
+              // Decide if commenting failure should fail the step:
+              // core.setFailed(`Failed to create comment: ${error.message}`);
+            }
 
       - name: Add preview deployment comment if linting passed
+        # Only runs if all previous steps succeeded
         if: success()
-        uses: actions/github-script@v6
+        # Use the latest major version of github-script
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { issue: { number: issue_number }, repo: { owner, repo } } = context;
-            github.rest.issues.createComment({
-              issue_number,
-              owner,
-              repo,
-              body: `✅ PR preview is deployed to https://${issue_number}.useform.coders.lt`
-            });
+            const prNumber = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+            // IMPORTANT: Double-check this URL pattern matches your actual preview deployment setup.
+            const previewUrl = `https://${prNumber}.useform.coders.lt`;
+            const body = `✅ Linting passed. PR preview deployment is expected at: ${previewUrl}`;
+            console.log(`Attempting to comment on PR #${prNumber}: ${body}`);
+            try {
+              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+            } catch (error) {
+              console.error(`Error creating comment on PR #${prNumber}: ${error.message}`);
+              // Decide if commenting failure should fail the step:
+              // core.setFailed(`Failed to create comment: ${error.message}`);
+            }
