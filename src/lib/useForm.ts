@@ -56,13 +56,13 @@ export function useForm<TValues>({
 
   const { defaultValues: initialDefaultValues = {} as Partial<InferredT> } = { defaultValues };
 
-  const formRef = React.useRef<Partial<InferredT>>({} as Partial<InferredT>);
+  const formRef = React.useRef<Partial<InferredT>>(initialDefaultValues);
   const defaultValuesRef = React.useRef(initialDefaultValues);
 
   const registeredFieldsRef = React.useRef<Set<keyof InferredT>>(new Set());
   const modifiedFieldsRef = React.useRef<Set<keyof InferredT>>(new Set());
 
-  const [values, setValues] = React.useState<Partial<InferredT>>({} as Partial<InferredT>);
+  const [values, setValues] = React.useState<Partial<InferredT>>(initialDefaultValues);
   const [errors, setErrors] = React.useState<Partial<Record<keyof InferredT, string>>>({});
   const [touched, setTouched] = React.useState<Partial<Record<keyof InferredT, boolean>>>({});
   const [isDirty, setIsDirty] = React.useState(false);
@@ -247,7 +247,6 @@ export function useForm<TValues>({
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => handleInputChange(name, e),
         onBlur: () => {
           setTouched((prev) => ({ ...prev, [name]: true }));
-          modifiedFieldsRef.current.add(name);
           if (validateOn === 'onBlur') {
             validate();
           }
@@ -269,9 +268,9 @@ export function useForm<TValues>({
 
   const reset = React.useCallback(() => {
     if (controlled) {
-      setValues({} as Partial<InferredT>);
+      setValues(initialDefaultValues);
     } else {
-      formRef.current = {} as Partial<InferredT>;
+      formRef.current = initialDefaultValues;
     }
 
     registeredFieldsRef.current.clear();
@@ -318,7 +317,7 @@ export function useForm<TValues>({
     setErrors({});
     setTouched({});
     setIsDirty(false);
-  }, [controlled, defaultValues]);
+  }, [controlled, defaultValues, initialDefaultValues]);
 
   const handleSubmit = React.useCallback(
     (onSubmit: (values: InferredT) => void | Promise<void>) => {
