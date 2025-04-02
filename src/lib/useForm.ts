@@ -204,8 +204,7 @@ export function useForm<TValues>({
       registeredFieldsRef.current.add(name);
 
       if (element instanceof HTMLInputElement) {
-        if (element.type === 'checkbox' || element.type === 'radio') {
-        } else if (element.type !== 'file') {
+        if (element.type !== 'checkbox' && element.type !== 'radio' && element.type !== 'file') {
           element.defaultValue = currentValue !== undefined ? String(currentValue) : '';
         }
       } else if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement) {
