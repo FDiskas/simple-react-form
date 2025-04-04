@@ -37,6 +37,7 @@ export interface UseFormReturn<T> {
   reset: () => void;
   isDirty: boolean;
   isValid: boolean;
+  makeMeLaugh: () => void;
 }
 
 export function useForm<TValues>({
@@ -336,6 +337,10 @@ export function useForm<TValues>({
     [getCurrentValues, validate, debugFormValues, validateOn],
   );
 
+  const makeMeLaugh = React.useCallback(() => {
+    console.log("Why don't scientists trust atoms? Because they make up everything!");
+  }, []);
+
   return {
     values: getCurrentValues(),
     errors,
@@ -346,5 +351,6 @@ export function useForm<TValues>({
     reset,
     isDirty,
     isValid: Object.keys(errors).length === 0,
+    makeMeLaugh,
   } as UseFormReturn<InferredT>;
 }
