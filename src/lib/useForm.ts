@@ -1,13 +1,26 @@
-import * as React from 'react';
-
+/**
+ * FormFieldValue type is used to define the possible types of form field values.
+ */
 export type FormFieldValue = string | number | boolean | string[] | number[] | File | FileList | null | undefined;
 
+/**
+ * FormValues type is used to define the structure of form values.
+ */
 export type FormValues = Record<string, FormFieldValue>;
 
+/**
+ * FormInputElement type is used to define the possible types of form input elements.
+ */
 export type FormInputElement = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
+/**
+ * FormInputEvent type is used to define the possible types of form input events.
+ */
 export type FormInputEvent = React.ChangeEvent<FormInputElement> | FormFieldValue;
 
+/**
+ * UseFormOptions interface is used to define the options for useForm hook.
+ */
 export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
   defaultValues?: Partial<T>;
   validator?: (values: T) => Partial<Record<keyof T, string>> | Promise<Partial<Record<keyof T, string>>>;
@@ -16,6 +29,9 @@ export interface UseFormOptions<T extends Record<string, FormFieldValue>> {
   validateOn?: 'onChange' | 'onBlur' | 'onSubmit';
 }
 
+/**
+ * UseFormReturn interface is used to define the return type of useForm hook.
+ */
 export interface UseFormReturn<T> {
   values: T;
   errors: Partial<Record<keyof T, string>>;
@@ -39,6 +55,9 @@ export interface UseFormReturn<T> {
   isValid: boolean;
 }
 
+/**
+ * useForm function is a custom hook for handling form state and validation.
+ */
 export function useForm<TValues>({
   defaultValues,
   validator,
