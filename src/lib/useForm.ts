@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * FormFieldValue type is used to define the possible types of form field values.
  */
